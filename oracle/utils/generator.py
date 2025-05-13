@@ -64,7 +64,7 @@ class StructureGenerator:
     def _prepare_instructions(self, input_structure_strs: List) -> List:
         instructions = []
         for input_str in input_structure_strs:
-            question = self.prompt_pattern.format(input=truncate_text(input_str, max_tokens=11800), rep_size=self.args.reproduction_size, fmt=self.fmt)
+            question = self.prompt_pattern.format(input=truncate_text(input_str, max_tokens=11800), rep_size=self.args.reproduction_size, fmt=self.fmt, compound=self.args.csp_compound)
             question = truncate_text(question, max_tokens=11000)
             instructions.append(question)
         return instructions

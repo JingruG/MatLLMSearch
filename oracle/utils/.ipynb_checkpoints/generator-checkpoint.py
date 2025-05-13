@@ -1,6 +1,6 @@
 from utils.data_processing import truncate_text, correct_json_string
 # from utils.structure_utils import filter_hypothesis, filter_balanced_structures
-from utils.config import PROMPT_PATTERN_CSG, PROMPT_PATTERN_CSP
+from utils.config import PROMPT_PATTERN_CSG, PROMPT_PATTERN_CSP, PROMPT_CRYSTALLLM
 # from utils.evaluator import check_properties_input
 from typing import List, Dict, Tuple, Any, Optional
 import pandas as pd
@@ -16,6 +16,22 @@ import random
 from pathlib import Path
 import numpy as np
 
+
+def parse_fn(gen_str):
+    lines = [x for x in gen_str.split("\n") if len(x) > 0]
+    lengths = [float(x) for x in lines[0].split(" ")]
+    angles = [float(x) for x in lines[1].split(" ")]
+    species = [x for x in lines[2::2]]
+    coords = [[float(y) for y in x.split(" ")] for x in lines[3::2]]
+    structure = Structure(
+        lattice=Lattice.from_parameters(
+            *(lengths + angles)),
+        species=species,
+        coords=coords, 
+        coords_are_cartesian=False,
+    )
+    return structure.to(fmt="cif")
+    
 @dataclass
 class GenerationResult:
     structure: List[Any]
@@ -33,6 +49,7 @@ class GenerationResult:
     num_a: Optional[Any] = None
     num_b: Optional[Any] = None
     num_c: Optional[Any] = None
+    timing_data: Optional[Any] = None 
     
 
 class StructureGenerator:
@@ -41,19 +58,16 @@ class StructureGenerator:
         self.args = args
         self.base_path = base_path
         self.fmt = args.fmt
-        self.prompt_pattern = PROMPT_PATTERN_CSG if args.task == "csg" else PROMPT_PATTERN_CSP
+        self.prompt_pattern = PROMPT_CRYSTALLLM if "crystalllm" in args.base_model else PROMPT_PATTERN_CSG if args.task == "csg" else PROMPT_PATTERN_CSP
 
         
     def _prepare_instructions(self, input_structure_strs: List) -> List:
         instructions = []
         for input_str in input_structure_strs:
-            question = self.prompt_pattern.format(input=truncate_text(input_str, max_tokens=11800), rep_size=self.args.reproduction_size, fmt=self.fmt)
-            message = [
-                { "role": "user", "content": question },
-             ]
-            instruction = self.llm_manager.tokenizer.apply_chat_template(message, tokenize=False)
-            instructions.append(instruction)
-        return [truncate_text(instruction, max_tokens=12000) for instruction in instructions]
+            question = self.prompt_pattern.format(input=truncate_text(input_str, max_tokens=11800), rep_size=self.args.reproduction_size, fmt=self.fmt, compound=self.args.csp_compound)
+            question = truncate_text(question, max_tokens=11000)
+            instructions.append(question)
+        return instructions
 
     def structure_to_string(self, structure: Structure, precision: int = 12, fmt: str = 'poscar') -> str:
         """Convert Structure to formatted string with specified decimal precision"""
@@ -109,13 +123,68 @@ class StructureGenerator:
         }
         return json.dumps(structures_dict, indent=2)
         
-
+    def get_crystal_string(self, structure):
+        # structure = Structure.from_str(cif_str, fmt="cif")
+    
+        # Randomly translate within the unit cell
+        structure.translate_sites(
+            indices=range(len(structure.sites)), vector=np.random.uniform(size=(3,))
+        )
+    
+        lengths = structure.lattice.parameters[:3]
+        angles = structure.lattice.parameters[3:]
+        atom_ids = structure.species
+        frac_coords = structure.frac_coords
+    
+        crystal_str = \
+            " ".join(["{0:.1f}".format(x) for x in lengths]) + "\n" + \
+            " ".join([str(int(x)) for x in angles]) + "\n" + \
+            "\n".join([
+                str(t) + "\n" + " ".join([
+                    "{0:.2f}".format(x) for x in c
+                ]) for t,c in zip(atom_ids, frac_coords)
+            ])
+    
+        return crystal_str
+        
+    def parse_fn(self, gen_str):
+        lines = [x for x in gen_str.split("\n") if len(x) > 0]
+        lengths = [float(x) for x in lines[0].split(" ")]
+        angles = [float(x) for x in lines[1].split(" ")]
+        species = [x for x in lines[2::2]]
+        coords = [[float(y) for y in x.split(" ")] for x in lines[3::2]]
+        
+        structure = Structure(
+            lattice=Lattice.from_parameters(
+                *(lengths + angles)),
+            species=species,
+            coords=coords, 
+            coords_are_cartesian=False,
+        )
+        return structure.to(fmt="cif")
+        
     def generate_structures(self, input_structures: List) -> List:
         if "flowmm" in self.args.base_model:
             generated_structures = self.llm_manager.generate(input_structures)
             return list(map(lambda x: [x] for x in generated_structures)), list(map(lambda x: [x] for x in input_structures))
         input_groups = [input_structures[i:i + self.args.context_size] for i in range(0, len(input_structures), self.args.context_size)]
+        
         input_structure_strs = [self.structures_to_json(input_group, precision=12, fmt=self.fmt) for input_group in input_groups]
+        if "crystalllm" in self.args.base_model and self.fmt=="cif":
+            input_structure_strs = []
+            species_to_remove_list = []
+            for input_group in input_groups:
+                masked_structures = []
+                for structure in input_group:
+                    species = [str(s) for s in structure.species]
+                    species_to_remove = random.choice(species)
+                    species_to_remove_list.append(species_to_remove)
+                    crystal_string = self.get_crystal_string(structure)  # Assuming this works on individual structures
+                    partial_crystal_str = crystal_string.replace(
+                        species_to_remove, "[MASK]"
+                    )
+                    masked_structures.append(partial_crystal_str)
+                input_structure_strs.append(masked_structures)
         
         # if self.args.task == "csp_MnO2":
         #     host_struct = Structure.from_file('oracle/MnO2-host/mp-19395-alpha-MnO2-sym.cif')
@@ -413,6 +482,9 @@ class StructureGenerator:
         
         def extract_structure_strings(text: str) -> List[str]:
             """Extract and validate structure strings based on format."""
+            
+            if "crystalllm" in self.args.base_model and self.fmt == 'cif':
+                return self.parse_fn(text)
             pattern = r'"' + self.fmt + r'":\s*"([^"]*?)(?:"\s*}|\Z)'
             matches = re.finditer(pattern, text, re.IGNORECASE)
             structure_strings = []
@@ -425,11 +497,13 @@ class StructureGenerator:
                         structure_strings.append(fixed_str)
                     else:
                         error_res.append((f"Invalid {self.fmt.upper()} format", struct_str))
-                else:  # cif format
+                elif self.fmt == 'cif':
                     if fixed_str := count_and_fix_composition_cif(struct_str):
                         structure_strings.append(fixed_str)
                     else:
                         error_res.append((f"Invalid {self.fmt.upper()} format", struct_str))
+                else:
+                    return []
             # Try direct structure string if no JSON matches
             if not found_matches:
                 if self.fmt == 'poscar' and 'direct' in text.lower():
@@ -439,6 +513,7 @@ class StructureGenerator:
                     if fixed_str := count_and_fix_composition_cif(text.strip()):
                         structure_strings.append(fixed_str)
             return structure_strings
+            
         try:
             cleaned_input = clean_json(input_data)
             structure_strings = extract_structure_strings(cleaned_input)

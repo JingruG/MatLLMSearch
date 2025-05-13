@@ -41,11 +41,11 @@ pip install -r requirements.txt
 
 2. MatBench Dataset [`matbench_v0.1 matbench_expt_gap`](https://matbench.materialsproject.org/Leaderboards%20Per-Task/matbench_v0.1_matbench_expt_gap/)
 
-   Download `Extra Pool` of known stable structures with decomposition energy: [3.5K Extra Pool](https://drive.google.com/file/d/116ielqvZJAn2M4oKTnz2snbHArgHsDcA/view?usp=sharing)
+   Download known stable structures with decomposition energy: [Seed Structures](https://drive.google.com/file/d/1DqE9wo6dqw3aSLEfBx-_QOdqmtqCqYQ5/view?usp=sharing)
 
 3. `mp_patched_phase_diagram`:  [`PatchedPhaseDiagram`](https://github.com/materialsproject/pymatgen/blob/v2023.5.10/pymatgen/analysis/phase_diagram.py#L1480-L1814) constructed from all MP `pymatgen` `ComputedStructureEntries`.
 
-   Download [oracle/2023-02-07-ppd-mp.pkl.gz](https://figshare.com/ndownloader/files/48241624).
+   Download [oracle/resouorces/2023-02-07-ppd-mp.pkl.gz](https://figshare.com/ndownloader/files/48241624).
 
 4. CHGNet model
 
@@ -63,6 +63,12 @@ For crystal structure prediction of Na3AlCl6:
 
 ```bash
 python main.py --task csp --opt_goal e_hull_distance --max_iter 10
+```
+
+For crystal structure prediction of Ag6O2:
+
+```bash
+python main.py --task csp --opt_goal e_hull_distance --max_iter 10 --csp_compound "Ag6O2"
 ```
 
 ## Citation
