@@ -26,6 +26,15 @@ This is the implementation for **MatLLMSearch: Large Language Models Are Innate 
 
 install key packages in `requirements.txt`
 
+```bash
+conda create -n matllmsearch python=3.10
+conda activate matllmsearch
+conda install -c conda-forge mamba
+mamba install pytorch torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia
+pip install -r requirements.txt
+```
+
+
 ### External Dependencies
 
 1. Meta-Llama 3.1

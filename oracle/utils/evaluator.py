@@ -5,7 +5,6 @@ from typing import List, Dict, Tuple, Any, Optional
 from pathlib import Path
 from bs4 import BeautifulSoup
 import re
-from basic_eval import timeout, TimeoutError
 import json
 from utils.config import METAL_OXIDATION_STATES
 from pymatgen.analysis.molecule_structure_comparator import CovalentRadius
@@ -14,7 +13,6 @@ from utils.generator import GenerationResult
 from dataclasses import dataclass
 from utils.basic_eval import structure_to_crystal, get_fp_pdist, CompScaler, timeout, TimeoutError
 from collections import Counter
-
 
 
 class StructureEvaluator:
@@ -233,6 +231,9 @@ class StructureEvaluator:
                                 for s in generation.structure_relaxed],
             'BulkModulusRelaxed': generation.bulk_modulus_relaxed,
         })
+        if hasattr(generation, 'timing_data') and generation.timing_data is not None:
+            for key, value in generation.timing_data.items():
+                metrics[key] = value
         for path, data in [
             (f"generations.csv", generation_df),
             (f"metrics.csv", pd.DataFrame([metrics]))

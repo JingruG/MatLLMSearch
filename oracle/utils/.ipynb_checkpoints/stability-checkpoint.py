@@ -2,10 +2,10 @@ import numpy as np
 from typing import List, Tuple, Dict, Optional
 from functools import wraps
 import torch
-from pymatgen.core.structure import Structure
 from dataclasses import dataclass
-from basic_eval import timeout, TimeoutError
-from chgnet.model.dynamics import EquationOfState
+from utils.basic_eval import timeout, TimeoutError
+from utils.e_hull_calculator import EHullCalculator
+from pymatgen.core.structure import Structure
 
 @dataclass
 class StabilityResult:
@@ -18,12 +18,69 @@ class StabilityResult:
     structure_relaxed: Optional[Structure] = None
 
 class StabilityCalculator:
-    def __init__(self, chgnet_model, relaxer_model, e_hull_model):
-        self.chgnet = chgnet_model
-        self.relaxer = relaxer_model
-        self.e_hull = e_hull_model
+    def __init__(self, mlip="chgnet", ppd_path=""):
+        self.mlip = mlip
+        self.e_hull = EHullCalculator(ppd_path)
+        if self.mlip == "chgnet":
+            from chgnet.model import CHGNet
+            from chgnet.model import StructOptimizer
+            from chgnet.model.dynamics import EquationOfState
+            self.chgnet = CHGNet.load()
+            self.relaxer = StructOptimizer()
+            self.EquationOfState = EquationOfState
+        elif self.mlip == "orb-v3":
+            import ase
+            from ase.io import read
+            from ase import Atoms
+            from ase.build import bulk
+            from ase.optimize import BFGS
+            from ase.eos import EquationOfState as ASE_EquationOfState
+            from orb_models.forcefield import pretrained
+            from orb_models.forcefield.calculator import ORBCalculator
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            self.orb_v3 = pretrained.orb_v3_conservative_inf_omat(
+                device=device,
+                precision="float32-high"
+            )
+            self.calculator = ORBCalculator(self.orb_v3, device=device)
+            self.reference_energies = {}
+            self.ASE_EquationOfState = ASE_EquationOfState
+            from pymatgen.io.ase import AseAtomsAdaptor
+            self.adaptor = AseAtomsAdaptor()
+        elif self.mlip == "sevenet":
+            from sevenn.calculator import SevenNetD3Calculator
+            self.calculator = SevenNetD3Calculator(model='7net-mf-ompa', device='cuda')
+        else:
+            raise ValueError(f"Unknown MLIP: {mlip}")
+            
+    def _pymatgen_to_ase(self, structure):
+        """Convert pymatgen Structure to ASE Atoms"""
+        from ase import Atoms
+        atoms = Atoms(
+            symbols=[site.specie.symbol for site in structure],
+            positions=[site.coords for site in structure],
+            cell=structure.lattice.matrix, pbc=True
+        )
+        return atoms
         
-    def compute_stability(self, structures: List[Structure], wo_ehull=False, wo_bulk=False) -> Tuple[List[float], List[float]]:
+    def _get_reference_energy(self, element):
+        """Get or calculate reference energy for an element"""
+        if element in self.reference_energies:
+            return self.reference_energies[element]
+        try:
+            from ase.build import bulk
+            # Create a bulk structure of the element in its ground state
+            reference_structure = bulk(element)
+            reference_structure.calc = self.calculator
+            energy = reference_structure.get_potential_energy()
+            per_atom_energy = energy / len(reference_structure)
+            self.reference_energies[element] = per_atom_energy
+            return per_atom_energy
+        except Exception as e:
+            print(f"Error calculating reference energy for {element}: {e}")
+            return 0.0
+        
+    def compute_stability(self, structures: List[Structure], wo_ehull=False, wo_bulk=True) -> Tuple[List[float], List[float]]:
         """Compute stability metrics for a list of structures."""
         results = []
         for structure in structures:
@@ -31,17 +88,45 @@ class StabilityCalculator:
             results.append(result)
         return results
 
-    def process_single_structure(self, structure: Structure, wo_ehull=False, wo_bulk=False) -> Optional[StabilityResult]:
+    def process_single_structure_ehull(self, structure: Structure, wo_ehull=False, wo_bulk=True) -> Optional[StabilityResult]:
         """Process single structure stability with error handling."""
         if structure.composition.num_atoms == 0:
             return None
-            
         try:
             # Initial energy computation
             energy = self.compute_energy_per_atom(structure)
             if energy is None:
                 return None
-
+            relaxation = self.relax_structure(structure)
+            if not relaxation or not relaxation['final_structure']:
+                return None
+            # Final energy computation
+            # energy_relaxed = relaxation['trajectory'].energies[-1] # not per atom
+            structure_relaxed = relaxation['final_structure']
+            energy_relaxed = self.compute_energy_per_atom(structure_relaxed)
+            delta_e = energy_relaxed - energy if energy_relaxed is not None else None
+            # E-hull distance calculation
+            e_hull_distance = self.compute_ehull_dist(structure_relaxed, energy_relaxed) 
+            return StabilityResult(
+                energy=energy,
+                e_hull_distance=e_hull_distance,
+                delta_e=delta_e,
+                energy_relaxed=energy_relaxed,
+                structure_relaxed=structure_relaxed
+            )
+        except Exception as e:
+            print(f"Error processing structure: {e}")
+            return None
+            
+    def process_single_structure(self, structure: Structure, wo_ehull=False, wo_bulk=True) -> Optional[StabilityResult]:
+        """Process single structure stability with error handling."""
+        if structure.composition.num_atoms == 0:
+            return None
+        try:
+            # Initial energy computation
+            energy = self.compute_energy_per_atom(structure)
+            if energy is None:
+                return None
             # Structure relaxation
             relaxation = self.relax_structure(structure)
             if not relaxation or not relaxation['final_structure']:
@@ -71,7 +156,6 @@ class StabilityCalculator:
                 bulk_modulus_relaxed=bulk_modulus_relaxed,
                 structure_relaxed=structure_relaxed
             )
-            
         except Exception as e:
             print(f"Error processing structure: {e}")
             return None
@@ -80,8 +164,26 @@ class StabilityCalculator:
     def compute_energy(self, structure: Structure) -> Optional[float]:
         """Compute structure energy."""
         try:
-            prediction = self.chgnet.predict_structure(structure)
-            return float(prediction['e'] * structure.num_sites)
+            if self.mlip == "chgnet":
+                prediction = self.chgnet.predict_structure(structure)
+                return float(prediction['e'] * structure.num_sites)
+            elif self.mlip == "orb-v3":
+                atoms = self._pymatgen_to_ase(structure)
+                atoms.calc = self.calculator
+                crystal_energy = atoms.get_potential_energy()
+                composition = atoms.get_chemical_symbols()
+                unique_elements = set(composition)
+                decomposition_energy = crystal_energy
+                for element in unique_elements:
+                    count = composition.count(element)
+                    ref_energy = self._get_reference_energy(element)
+                    decomposition_energy -= count * ref_energy
+                return decomposition_energy
+            elif self.mlip == "sevenet":
+                atoms = self._pymatgen_to_ase(structure)
+                atoms.calc = self.calculator
+                crystal_energy = atoms.get_potential_energy()
+                return crystal_energy
         except Exception as e:
             print(f"Energy computation error: {e}")
             return None
@@ -90,8 +192,10 @@ class StabilityCalculator:
     def compute_energy_per_atom(self, structure: Structure) -> Optional[float]:
         """Compute structure energy (per atom)."""
         try:
-            prediction = self.chgnet.predict_structure(structure)
-            return float(prediction['e'])
+            energy = self.compute_energy(structure)
+            if energy is not None:
+                return energy / structure.num_sites
+            return None
         except Exception as e:
             print(f"Energy per atom computation error: {e}")
             return None
@@ -100,7 +204,36 @@ class StabilityCalculator:
     def relax_structure(self, structure: Structure) -> Optional[Dict]:
         """Relax structure with timeout."""
         try:
-            return self.relaxer.relax(structure)
+            if self.mlip == "chgnet":
+                return self.relaxer.relax(structure)
+            elif self.mlip == "orb-v3":
+                from ase.optimize import BFGS
+                # Convert to ASE Atoms
+                atoms = self._pymatgen_to_ase(structure)
+                atoms.calc = self.calculator
+                
+                # Create a basic trajectory to store energies
+                trajectory = {'energies': []}
+                
+                # Store initial energy
+                initial_energy = atoms.get_potential_energy()
+                trajectory['energies'].append(initial_energy)
+                
+                # Perform relaxation with BFGS
+                optimizer = BFGS(atoms)
+                optimizer.run(fmax=0.05, steps=200)
+                
+                # Store final energy
+                final_energy = atoms.get_potential_energy()
+                trajectory['energies'].append(final_energy)
+                
+                final_structure = self.adaptor.get_structure(atoms)
+                return {
+                    'final_structure': final_structure,
+                    'trajectory': trajectory
+                }
+            else:
+                raise ValueError(f"Unknown MLIP: {self.mlip}")
         except Exception as e:
             print(f"Relaxation error: {e}")
             return None
@@ -122,14 +255,30 @@ class StabilityCalculator:
     def compute_bulk_modulus(self, structure: Structure) -> Optional[float]:
         """Compute bulk modulus."""
         try:
-            eos = EquationOfState(model=self.chgnet)
-            eos.fit(atoms=structure, steps=500, fmax=0.1, verbose=False)
-            return eos.get_bulk_modulus(unit="eV/A^3")
+            if self.mlip == "chgnet":
+                eos = self.EquationOfState(model=self.chgnet)
+                eos.fit(atoms=structure, steps=500, fmax=0.1, verbose=False)
+                return eos.get_bulk_modulus(unit="eV/A^3")
+            elif self.mlip == "orb-v3":
+                atoms = self._pymatgen_to_ase(structure)
+                atoms.calc = self.calculator
+                volumes = []
+                energies = []
+                original_volume = atoms.get_volume()
+                for scaling_factor in np.linspace(0.94, 1.06, 7):
+                    scaled_atoms = atoms.copy()
+                    scaled_atoms.set_cell(atoms.get_cell() * scaling_factor**(1/3), scale_atoms=True)
+                    scaled_atoms.calc = self.calculator
+                    volumes.append(scaled_atoms.get_volume())
+                    energies.append(scaled_atoms.get_potential_energy())
+                eos = self.ASE_EquationOfState(volumes, energies)
+                v0, e0, B = eos.fit()  # B is the bulk modulus in eV/Ang^3
+                B_GPa = B * 160.2176621
+                return B_GPa
         except Exception as e:
             print(f"Bulk modulus computation error: {e}")
             return 0.0
     
-
     def check_stability_rate(self, e_hull_distances: List[float], threshold: float = 0.03) -> Dict:
         """Compute stability statistics for given threshold."""
         if not e_hull_distances:
@@ -155,5 +304,3 @@ class StabilityCalculator:
         return {
             "avg_delta_e": np.mean(valid_delta_e) if valid_delta_e else np.inf
         }
-
-

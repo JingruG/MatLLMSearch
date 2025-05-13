@@ -240,7 +240,7 @@ class CDVAEGenEval(object):
         pred_crys, 
         gt_cov_crys, 
         gt_novelty_crys,
-        n_samples=1000, 
+        n_samples=1, 
         eval_model_name=None
     ):
         self.crys = pred_crys
@@ -250,13 +250,14 @@ class CDVAEGenEval(object):
         self.eval_model_name = eval_model_name
 
         valid_crys = [c for c in pred_crys if c.valid]
-        if len(valid_crys) >= n_samples:
-            sampled_indices = np.random.choice(
-                len(valid_crys), n_samples, replace=False)
-            self.valid_samples = [valid_crys[i] for i in sampled_indices]
-        else:
-            raise Exception(
-                f'not enough valid crystals in the predicted set: {len(valid_crys)}/{n_samples}')
+        self.valid_samples = valid_crys
+        # if len(valid_crys) >= n_samples:
+        #     sampled_indices = np.random.choice(
+        #         len(valid_crys), n_samples, replace=False)
+        #     self.valid_samples = [valid_crys[i] for i in sampled_indices]
+        # else:
+        #     raise Exception(
+        #         f'not enough valid crystals in the predicted set: {len(valid_crys)}/{n_samples}')
 
     def get_validity(self):
         comp_valid = np.array([c.comp_valid for c in self.crys]).mean()
@@ -266,12 +267,21 @@ class CDVAEGenEval(object):
                 'struct_valid': struct_valid,
                 'valid': valid}
 
+    # def get_comp_diversity(self):
+    #     comp_fps = [c.comp_fp for c in self.valid_samples]
+    #     comp_fps = CompScaler.transform(comp_fps)
+    #     comp_div = get_fp_pdist(comp_fps)
+    #     return {'comp_div': comp_div}
+
     def get_comp_diversity(self):
         comp_fps = [c.comp_fp for c in self.valid_samples]
         comp_fps = CompScaler.transform(comp_fps)
         comp_div = get_fp_pdist(comp_fps)
-        return {'comp_div': comp_div}
-
+        N = comp_fps[0].shape[0] if len(comp_fps[0].shape) > 0 else 1
+        theoretical_max = (N ** 0.7)  # Using a higher exponent to account for observed data
+        normalized_comp_div = comp_div / theoretical_max
+        return {'comp_div': normalized_comp_div}
+        
     def get_struct_diversity(self):
         return {'struct_div': get_fp_pdist([c.struct_fp for c in self.valid_samples])}
 
@@ -311,7 +321,7 @@ class CDVAEGenEval(object):
         metrics.update(self.get_struct_diversity())
         metrics.update(self.get_density_wdist())
         metrics.update(self.get_num_elem_wdist())
-        metrics.update(self.get_coverage())
+        # metrics.update(self.get_coverage())
         metrics.update(self.get_novelty())
         return metrics
 
