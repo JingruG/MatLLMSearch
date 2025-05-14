@@ -7,3 +7,4 @@ oracle/resources/*
 .ipynb_checkpoints
 results/*
 oracle/visualization/*
+oracle/*.ipynb

@@ -258,7 +258,11 @@ class StructureEvaluator:
         for idx, structure in enumerate(structure_list):
             try:
                 structure = structure.get_primitive_structure()
-                if not (structure.is_3d_periodic and self.no_isolate_atom(structure)):
+                if not structure.is_3d_periodic:
+                    print('is not 3d periodic')
+                    continue
+                if self.no_isolate_atom(structure):
+                    print('has isolated atom')
                     continue
                 if self.check_balanced_composition(structure) and structure not in balanced_structures:
                     balanced_structures.append(structure)
