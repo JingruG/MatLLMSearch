@@ -4,7 +4,7 @@ __pycache__/
 .env
 .env.*
 oracle/resources/*
-.ipynb_checkpoints
+oracle/.ipynb_checkpoints
 results/*
 oracle/visualization/*
 oracle/*.ipynb
