@@ -264,7 +264,8 @@ class StructureEvaluator:
                 # if self.no_isolate_atom(structure):
                 #     print('has isolated atom')
                 #     continue
-                if self.check_balanced_composition(structure) and structure not in balanced_structures:
+                # if self.check_balanced_composition(structure) and structure not in balanced_structures:
+                if structure not in balanced_structures:
                     balanced_structures.append(structure)
                     balanced_parents.append(parents_list[idx])
             except Exception as e:
