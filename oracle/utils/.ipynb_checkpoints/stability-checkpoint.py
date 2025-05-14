@@ -6,6 +6,9 @@ from dataclasses import dataclass
 from utils.basic_eval import timeout, TimeoutError
 from utils.e_hull_calculator import EHullCalculator
 from pymatgen.core.structure import Structure
+from chgnet.model import CHGNet
+from chgnet.model import StructOptimizer
+from chgnet.model.dynamics import EquationOfState
 
 @dataclass
 class StabilityResult:
@@ -23,14 +26,10 @@ class StabilityCalculator:
         self.e_hull = EHullCalculator(ppd_path)
         from pymatgen.io.ase import AseAtomsAdaptor
         self.adaptor = AseAtomsAdaptor()
-        if self.mlip == "chgnet":
-            from chgnet.model import CHGNet
-            from chgnet.model import StructOptimizer
-            from chgnet.model.dynamics import EquationOfState
-            self.chgnet = CHGNet.load()
-            self.relaxer = StructOptimizer()
-            self.EquationOfState = EquationOfState
-        elif self.mlip == "orb-v3":
+        self.chgnet = CHGNet.load()
+        self.relaxer = StructOptimizer()
+        self.EquationOfState = EquationOfState
+        if self.mlip == "orb-v3":
             import ase
             from ase.io import read
             from ase import Atoms
@@ -75,7 +74,7 @@ class StabilityCalculator:
         if structure.composition.num_atoms == 0:
             return None
         try:
-            relaxation = self.relax_structure(structure)
+            relaxation = self.relax_structure(structure, mlip="chgnet")
             if not relaxation or not relaxation['final_structure']:
                 return None
             energies = relaxation['trajectory'].energies if hasattr(relaxation['trajectory'], 'energies') else relaxation['trajectory']['energies']
@@ -87,6 +86,15 @@ class StabilityCalculator:
             e_hull_distance = None if wo_ehull else self.compute_ehull_dist(final_structure, final_energy) 
             bulk_modulus = None if wo_bulk else self.compute_bulk_modulus(structure)
             bulk_modulus_relaxed = None if wo_bulk else self.compute_bulk_modulus(final_structure)
+
+            if self.mlip in ["orb-v3", "sevenet"]:
+                csp_relaxation = self.relax_structure(structure, mlip=self.mlip)
+                if not csp_relaxation or not csp_relaxation['final_structure']:
+                    return None
+                csp_energies = csp_relaxation['trajectory']['energies']
+                initial_energy = csp_energies[0] # overwrite
+                final_energy = csp_energies[-1]
+            
             initial_energy = initial_energy / structure.num_sites
             final_energy = final_energy / structure.num_sites
             
@@ -132,12 +140,12 @@ class StabilityCalculator:
 
 
     @timeout(120, error_message="Relaxation timed out after 120 seconds")
-    def relax_structure(self, structure: Structure) -> Optional[Dict]:
+    def relax_structure(self, structure: Structure, mlip="chgnet") -> Optional[Dict]:
         """Relax structure with timeout."""
         try:
-            if self.mlip == "chgnet":
+            if mlip == "chgnet":
                 return self.relaxer.relax(structure)
-            elif self.mlip in ["orb-v3", "sevenet"]:
+            elif mlip in ["orb-v3", "sevenet"]:
                 from ase.optimize import BFGS
                 # Convert to ASE Atoms
                 atoms = self._pymatgen_to_ase(structure)
@@ -160,9 +168,9 @@ class StabilityCalculator:
                 
                 final_structure = self.adaptor.get_structure(atoms)
                 return {
-                    'final_structure': final_structure,
-                    'trajectory': trajectory
-                }
+                        'final_structure': final_structure,
+                        'trajectory': trajectory
+                    }
             else:
                 raise ValueError(f"Unknown MLIP: {self.mlip}")
         except Exception as e:

@@ -1,7 +1,6 @@
 import os
 
 # Environment Variables
-os.environ['HF_HOME'] = '/local2/jrgan/cache/'
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ['VLLM_WORKER_MULTIPROC_METHOD'] = 'spawn'
 os.environ['VLLM_ALLOW_LONG_MAX_MODEL_LEN'] = '1'
