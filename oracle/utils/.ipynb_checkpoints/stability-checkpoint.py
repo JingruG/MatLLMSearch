@@ -21,6 +21,8 @@ class StabilityCalculator:
     def __init__(self, mlip="chgnet", ppd_path=""):
         self.mlip = mlip
         self.e_hull = EHullCalculator(ppd_path)
+        from pymatgen.io.ase import AseAtomsAdaptor
+        self.adaptor = AseAtomsAdaptor()
         if self.mlip == "chgnet":
             from chgnet.model import CHGNet
             from chgnet.model import StructOptimizer
@@ -43,13 +45,10 @@ class StabilityCalculator:
                 precision="float32-high"
             )
             self.calculator = ORBCalculator(self.orb_v3, device=device)
-            self.reference_energies = {}
             self.ASE_EquationOfState = ASE_EquationOfState
-            from pymatgen.io.ase import AseAtomsAdaptor
-            self.adaptor = AseAtomsAdaptor()
         elif self.mlip == "sevenet":
             from sevenn.calculator import SevenNetD3Calculator
-            self.calculator = SevenNetD3Calculator(model='7net-mf-ompa', device='cuda')
+            self.calculator = SevenNetD3Calculator('7net-mf-ompa', modal='omat24', device='cuda')
         else:
             raise ValueError(f"Unknown MLIP: {mlip}")
             
@@ -63,23 +62,6 @@ class StabilityCalculator:
         )
         return atoms
         
-    def _get_reference_energy(self, element):
-        """Get or calculate reference energy for an element"""
-        if element in self.reference_energies:
-            return self.reference_energies[element]
-        try:
-            from ase.build import bulk
-            # Create a bulk structure of the element in its ground state
-            reference_structure = bulk(element)
-            reference_structure.calc = self.calculator
-            energy = reference_structure.get_potential_energy()
-            per_atom_energy = energy / len(reference_structure)
-            self.reference_energies[element] = per_atom_energy
-            return per_atom_energy
-        except Exception as e:
-            print(f"Error calculating reference energy for {element}: {e}")
-            return 0.0
-        
     def compute_stability(self, structures: List[Structure], wo_ehull=False, wo_bulk=True) -> Tuple[List[float], List[float]]:
         """Compute stability metrics for a list of structures."""
         results = []
@@ -87,118 +69,66 @@ class StabilityCalculator:
             result = self.process_single_structure(structure, wo_ehull=wo_ehull, wo_bulk=wo_bulk)
             results.append(result)
         return results
-
-    def process_single_structure_ehull(self, structure: Structure, wo_ehull=False, wo_bulk=True) -> Optional[StabilityResult]:
-        """Process single structure stability with error handling."""
-        if structure.composition.num_atoms == 0:
-            return None
-        try:
-            # Initial energy computation
-            energy = self.compute_energy_per_atom(structure)
-            if energy is None:
-                return None
-            relaxation = self.relax_structure(structure)
-            if not relaxation or not relaxation['final_structure']:
-                return None
-            # Final energy computation
-            # energy_relaxed = relaxation['trajectory'].energies[-1] # not per atom
-            structure_relaxed = relaxation['final_structure']
-            energy_relaxed = self.compute_energy_per_atom(structure_relaxed)
-            delta_e = energy_relaxed - energy if energy_relaxed is not None else None
-            # E-hull distance calculation
-            e_hull_distance = self.compute_ehull_dist(structure_relaxed, energy_relaxed) 
-            return StabilityResult(
-                energy=energy,
-                e_hull_distance=e_hull_distance,
-                delta_e=delta_e,
-                energy_relaxed=energy_relaxed,
-                structure_relaxed=structure_relaxed
-            )
-        except Exception as e:
-            print(f"Error processing structure: {e}")
-            return None
             
     def process_single_structure(self, structure: Structure, wo_ehull=False, wo_bulk=True) -> Optional[StabilityResult]:
         """Process single structure stability with error handling."""
         if structure.composition.num_atoms == 0:
             return None
         try:
-            # Initial energy computation
-            energy = self.compute_energy_per_atom(structure)
-            if energy is None:
-                return None
-            # Structure relaxation
             relaxation = self.relax_structure(structure)
             if not relaxation or not relaxation['final_structure']:
                 return None
-
-            # Final energy computation
-            # energy_relaxed = relaxation['trajectory'].energies[-1] # not per atom
-            structure_relaxed = relaxation['final_structure']
-            energy_relaxed = self.compute_energy_per_atom(structure_relaxed)
-
-            delta_e = energy_relaxed - energy if energy_relaxed is not None else None
-            # delta_e = delta_e / structure_relaxed.num_sites if ((structure_relaxed.num_sites is not None) and (delta_e is not None)) else None
-            
-            # E-hull distance calculation
-            e_hull_distance = None if wo_ehull else self.compute_ehull_dist(structure_relaxed, energy_relaxed) 
-            
-            # Bulk modulus calculation
+            initial_energy = relaxation['trajectory']['energies'][0]
+            final_energy = relaxation['trajectory']['energies'][-1] # not per atom
+            final_structure = relaxation['final_structure']
+            # energy_relaxed = self.compute_energy_per_atom(structure_relaxed)
+            delta_e = final_energy - initial_energy if final_energy is not None else None
+            e_hull_distance = None if wo_ehull else self.compute_ehull_dist(final_structure, final_energy) 
             bulk_modulus = None if wo_bulk else self.compute_bulk_modulus(structure)
-            bulk_modulus_relaxed = None if wo_bulk else self.compute_bulk_modulus(structure_relaxed)
+            bulk_modulus_relaxed = None if wo_bulk else self.compute_bulk_modulus(final_structure)
+            initial_energy = initial_energy / structure.num_sites
+            final_energy = final_energy / structure.num_sites
             
             return StabilityResult(
-                energy=energy,
+                energy=initial_energy,
                 e_hull_distance=e_hull_distance,
                 delta_e=delta_e,
                 bulk_modulus=bulk_modulus,
-                energy_relaxed=energy_relaxed,
+                energy_relaxed=final_energy,
                 bulk_modulus_relaxed=bulk_modulus_relaxed,
-                structure_relaxed=structure_relaxed
+                structure_relaxed=final_structure
             )
         except Exception as e:
             print(f"Error processing structure: {e}")
             return None
 
-    @timeout(60, error_message="Energy computation timed out after 60 seconds")
-    def compute_energy(self, structure: Structure) -> Optional[float]:
-        """Compute structure energy."""
-        try:
-            if self.mlip == "chgnet":
-                prediction = self.chgnet.predict_structure(structure)
-                return float(prediction['e'] * structure.num_sites)
-            elif self.mlip == "orb-v3":
-                atoms = self._pymatgen_to_ase(structure)
-                atoms.calc = self.calculator
-                crystal_energy = atoms.get_potential_energy()
-                composition = atoms.get_chemical_symbols()
-                unique_elements = set(composition)
-                decomposition_energy = crystal_energy
-                for element in unique_elements:
-                    count = composition.count(element)
-                    ref_energy = self._get_reference_energy(element)
-                    decomposition_energy -= count * ref_energy
-                return decomposition_energy
-            elif self.mlip == "sevenet":
-                atoms = self._pymatgen_to_ase(structure)
-                atoms.calc = self.calculator
-                crystal_energy = atoms.get_potential_energy()
-                return crystal_energy
-        except Exception as e:
-            print(f"Energy computation error: {e}")
-            return None
+
+    # @timeout(60, error_message="Energy computation timed out after 60 seconds")
+    # def compute_energy(self, structure: Structure) -> Optional[float]:
+    #     """Compute structure energy."""
+    #     try:
+    #         prediction = self.chgnet.predict_structure(structure)
+    #         return float(prediction['e'] * structure.num_sites)
+    #     except Exception as e:
+    #         print(f"Energy computation error: {e}")
+    #         return None
 
     @timeout(60, error_message="Energy per atom computation timed out after 60 seconds")
     def compute_energy_per_atom(self, structure: Structure) -> Optional[float]:
         """Compute structure energy (per atom)."""
         try:
-            energy = self.compute_energy(structure)
-            if energy is not None:
-                return energy / structure.num_sites
-            return None
+            if self.mlip == "chgnet":
+                prediction = self.chgnet.predict_structure(structure)
+                return float(prediction['e'])
+            elif self.mlip in ["orb-v3", "sevenet"]:
+                atoms = self._pymatgen_to_ase(structure)
+                atoms.calc = self.calculator
+                crystal_energy = atoms.get_potential_energy()
+                return crystal_energy / structure.num_sites
         except Exception as e:
             print(f"Energy per atom computation error: {e}")
             return None
+
 
     @timeout(120, error_message="Relaxation timed out after 120 seconds")
     def relax_structure(self, structure: Structure) -> Optional[Dict]:
@@ -206,7 +136,7 @@ class StabilityCalculator:
         try:
             if self.mlip == "chgnet":
                 return self.relaxer.relax(structure)
-            elif self.mlip == "orb-v3":
+            elif self.mlip in ["orb-v3", "sevenet"]:
                 from ase.optimize import BFGS
                 # Convert to ASE Atoms
                 atoms = self._pymatgen_to_ase(structure)
@@ -221,7 +151,7 @@ class StabilityCalculator:
                 
                 # Perform relaxation with BFGS
                 optimizer = BFGS(atoms)
-                optimizer.run(fmax=0.05, steps=200)
+                optimizer.run(fmax=0.05, steps=500)
                 
                 # Store final energy
                 final_energy = atoms.get_potential_energy()
@@ -239,12 +169,12 @@ class StabilityCalculator:
             return None
 
     @timeout(60, error_message="E-hull distance computation timed out after 60 seconds")
-    def compute_ehull_dist(self, structure: Structure, energy_per_atom: float) -> Optional[float]:
+    def compute_ehull_dist(self, structure: Structure, energy: float) -> Optional[float]:
         """Compute energy hull distance."""
         try:
             hull_data = [{
                 'structure': structure,
-                'energy': energy_per_atom * structure.num_sites
+                'energy': energy # energy_per_atom * structure.num_sites
             }]
             return self.e_hull.get_e_hull(hull_data)[0]['e_hull']
         except Exception as e:

@@ -121,15 +121,13 @@ Each proposed structure must be formatted in JSON with the following structure:
 {{
     "i": {{
         "formula": "{compound}",
-        "space_group": "[space group]",
-        "structure_description": "[brief description of bonding and coordination]",
         "{fmt}": "{fmt}_format_string"
     }}
 }}
 
 Use proper JSON escaping for newlines (\\n) and other special characters.
 
-Output your ground state polymorph prediction for {compound} below:
+Output your ground state polymorph prediction below:
 """
 
 # You are an expert material scientist. Your task is to design {rep_size} novel, thermodynamically stable variants of Lithium Zirconium Chloride structures with the general formula (Li2ZrCl6)*n, where n represents different multiples of the base composition. No isolated or overlapped atoms are allowed. You may refer to the reference structures provided below as inspiration, but ensure you propose novel atomic arrangements beyond simple atomic substitution.

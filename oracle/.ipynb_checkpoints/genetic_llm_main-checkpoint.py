@@ -51,7 +51,7 @@ def parse_arguments() -> argparse.Namespace:
     
     parser.add_argument('--opt_goal', choices=['e_hull_distance', 'bulk_modulus_relaxed', 'multi-obj'], default='e_hull_distance')
     parser.add_argument('--task', choices=['csg', 'csp', 'csp_MnO2'], default='csg')
-    parser.add_argument('--csp_compound', choices=['Ag6O2', 'Bi2F8', 'Co2Sb2', 'Co4B2'], default='Ag6O2')
+    parser.add_argument('--csp_compound', choices=['Ag6O2', 'Bi2F8', 'Co2Sb2', 'Co4B2', 'Cr4Si4', 'KZnF3', "Sr2O4", "YMg3"], default='Ag6O2')
     
     return parser.parse_args()
 
@@ -75,6 +75,7 @@ def initialize_models(args: argparse.Namespace) -> Tuple:
     
     evaluator = StructureEvaluator(base_path=base_path)
     mlip = "orb-v3" if args.task == "csp" else "chgnet" # "sevenet" "orb-v3" "chgnet" 
+    # mlip = "chgnet" # "sevenet" "orb-v3" "chgnet" 
     stability_calculator = StabilityCalculator(mlip=mlip, ppd_path=args.ppd_path)
     
     # evaluator, stability_calculator = None, None
@@ -88,13 +89,16 @@ def filter_valid_values(df, columns):
         mask &= ~(df[col].isna() | df[col].isin([np.inf, -np.inf]) | (df[col] == 0))
     return mask
 
-def matches_composition(comp, target_elements):
+def contains_elements(comp, target_elements):
     """Check if composition contains all target elements (Ag, O) regardless of ratio."""
-    # if not all(el in comp.elements for el in target_elements):
-    #     return False
-    # reduced_comp, _ = comp.get_reduced_composition_and_factor()
-    # return all(abs(reduced_comp[el] - amt) <= 1e-6 for el, amt in target_ratio.items())
     return all(el in comp.elements for el in target_elements)
+
+def matches_composition(comp, target_elements, target_ratio):
+    """Check if composition contains all target elements (Ag, O) regardless of ratio."""
+    if not all(el in comp.elements for el in target_elements):
+        return False
+    reduced_comp, _ = comp.get_reduced_composition_and_factor()
+    return all(abs(reduced_comp[el] - amt) <= 1e-6 for el, amt in target_ratio.items())
 
 def initialize_task_data(evaluator: StructureEvaluator, args: argparse.Namespace):
     """Initialize and prepare task data."""
@@ -123,10 +127,8 @@ def initialize_task_data(evaluator: StructureEvaluator, args: argparse.Namespace
     elif args.task == "csp":
         target_comp = Composition(args.csp_compound)
         target_elements = set(target_comp.elements)
-        target_ratio = {str(el): amt/target_comp.get_reduced_composition_and_factor()[1] 
-                        for el, amt in target_comp.items()}
         # seed_structures_df = seed_structures_df[seed_structures_df['composition'].apply(matches_composition)]
-        seed_structures_df = seed_structures_df[seed_structures_df['composition'].apply(lambda comp: matches_composition(comp, target_elements))]
+        seed_structures_df = seed_structures_df[seed_structures_df['composition'].apply(lambda comp: contains_elements(comp, target_elements))]
 
     # elif args.task == "csp_MnO2":
     #     seed_structures_df = seed_structures_df[np.isfinite(seed_structures_df['e_hull_distance'])]
@@ -168,6 +170,16 @@ def run_generation_iteration(
     
     # Filter both structures and parents
     llm_structures, llm_parents = evaluator.filter_balanced_structures(llm_structures, llm_parents)
+    if args.task == "csp":
+        target_comp = Composition(args.csp_compound)
+        target_elements = set(target_comp.elements)
+        target_ratio = target_comp.get_el_amt_dict()
+        
+        filtered_data = [(s, p) for s, p in zip(llm_structures, llm_parents) 
+                         if matches_composition(s.composition, target_elements, target_ratio)]
+        
+        llm_structures, llm_parents = zip(*filtered_data) if filtered_data else ([], [])
+        llm_structures, llm_parents = list(llm_structures), list(llm_parents)
     llm_crystals, llm_structures = evaluator.to_crys(llm_structures) # call to_crystals again
     num_c = len(llm_structures)
     print(f'Filtered to {num_c} balanced structures')
@@ -323,7 +335,7 @@ def get_parent_generation(evaluator, stability_calculator, input_generation: Gen
                      full_df: pd.DataFrame, sort_target: str, args: argparse.Namespace, iter: int) -> GenerationResult:
     """Get sorted generation combining input structures and parent generation results."""
     interested_columns = ['structure', 'composition', 'composition_str', 'e_hull_distance', 'delta_e', 'bulk_modulus', 'bulk_modulus_relaxed', 'source']
-    if input_generation and parent_generation: 
+    if (input_generation and parent_generation and len(input_generation.structure) and not any(element is None for element in input_generation.structure) and len(full_df) >= args.topk * args.context_size):
         generation_df = pd.DataFrame({
             'structure': input_generation.structure + parent_generation.structure,
             'composition': [s.composition for s in (input_generation.structure + parent_generation.structure)],
@@ -353,7 +365,7 @@ def get_parent_generation(evaluator, stability_calculator, input_generation: Gen
     elif args.task == "csp":
         target_comp = Composition(args.csp_compound)
         target_elements = set(target_comp.elements)
-        generation_df = generation_df[generation_df['composition'].apply(lambda comp: matches_composition(comp, target_elements))]
+        generation_df = generation_df[generation_df['composition'].apply(lambda comp: contains_elements(comp, target_elements))]
 
     else:
         raise ValueError(f"Invalid task: {args.task}")

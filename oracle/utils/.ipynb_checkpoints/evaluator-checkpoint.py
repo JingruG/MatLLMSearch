@@ -215,31 +215,32 @@ class StructureEvaluator:
         
     def save_results(self, generation: Any, metrics: Dict[str, Any], iteration: int, args: Any) -> None:
         """Save generation results and metrics to CSV files."""
-        print(len(generation.structure),len(generation.parents), ' structures saved to file ')    
-        generation_df = pd.DataFrame({
-            'Iteration': [iteration] * len(generation.structure),
-            'Structure': [json.dumps(s.as_dict(), sort_keys=True) if s is not None else None 
-                         for s in generation.structure],
-            'ParentStructures': [json.dumps([json.dumps(p.as_dict(), sort_keys=True) if p is not None else None for p in pp])
-                         for pp in generation.parents],
-            'Objective': generation.objective,
-            'Composition': generation.composition,
-            'DeltaE': generation.delta_e,
-            'EHullDistance': generation.e_hull_distance,
-            'BulkModulus': generation.bulk_modulus,
-            'StructureRelaxed': [json.dumps(s.as_dict(), sort_keys=True) if s is not None else None 
-                                for s in generation.structure_relaxed],
-            'BulkModulusRelaxed': generation.bulk_modulus_relaxed,
-        })
-        if hasattr(generation, 'timing_data') and generation.timing_data is not None:
-            for key, value in generation.timing_data.items():
-                metrics[key] = value
-        for path, data in [
-            (f"generations.csv", generation_df),
-            (f"metrics.csv", pd.DataFrame([metrics]))
-        ]:
-            full_path = self.base_path / path
-            data.to_csv(full_path, mode='a', header=not full_path.exists(), index=False)
+        print(len(generation.structure),len(generation.parents), ' structures saved to file ')   
+        if len(generation.structure) and len(generation.structure) == len(generation.parents):
+            generation_df = pd.DataFrame({
+                'Iteration': [iteration] * len(generation.structure),
+                'Structure': [json.dumps(s.as_dict(), sort_keys=True) if s is not None else None 
+                             for s in generation.structure],
+                'ParentStructures': [json.dumps([json.dumps(p.as_dict(), sort_keys=True) if p is not None else None for p in pp])
+                             for pp in generation.parents],
+                'Objective': generation.objective,
+                'Composition': generation.composition,
+                'DeltaE': generation.delta_e,
+                'EHullDistance': generation.e_hull_distance,
+                'BulkModulus': generation.bulk_modulus,
+                'StructureRelaxed': [json.dumps(s.as_dict(), sort_keys=True) if s is not None else None 
+                                    for s in generation.structure_relaxed],
+                'BulkModulusRelaxed': generation.bulk_modulus_relaxed,
+            })
+            if hasattr(generation, 'timing_data') and generation.timing_data is not None:
+                for key, value in generation.timing_data.items():
+                    metrics[key] = value
+            for path, data in [
+                (f"generations.csv", generation_df),
+                (f"metrics.csv", pd.DataFrame([metrics]))
+            ]:
+                full_path = self.base_path / path
+                data.to_csv(full_path, mode='a', header=not full_path.exists(), index=False)
             
     @timeout(30, error_message="Balance composition check timed out after 30 seconds")
     def check_balanced_composition(self, structure: Structure):

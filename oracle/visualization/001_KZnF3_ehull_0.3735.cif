@@ -1,0 +1,31 @@
+# generated using pymatgen
+data_KZnF3
+_symmetry_space_group_name_H-M   'P 1'
+_cell_length_a   4.14310170
+_cell_length_b   4.14310170
+_cell_length_c   4.08375710
+_cell_angle_alpha   90.00000000
+_cell_angle_beta   90.00000000
+_cell_angle_gamma   90.00000000
+_symmetry_Int_Tables_number   1
+_chemical_formula_structural   KZnF3
+_chemical_formula_sum   'K1 Zn1 F3'
+_cell_volume   70.09888184
+_cell_formula_units_Z   1
+loop_
+ _symmetry_equiv_pos_site_id
+ _symmetry_equiv_pos_as_xyz
+  1  'x, y, z'
+loop_
+ _atom_site_type_symbol
+ _atom_site_label
+ _atom_site_symmetry_multiplicity
+ _atom_site_fract_x
+ _atom_site_fract_y
+ _atom_site_fract_z
+ _atom_site_occupancy
+  F  F0  1  0.20082543  -0.14617598  0.74684525  1
+  F  F1  1  0.69768416  0.34846393  0.75218778  1
+  F  F2  1  -0.29752281  0.84622074  0.25030953  1
+  K  K3  1  0.19828257  0.35196025  0.25101351  1
+  Zn  Zn4  1  0.70073036  0.84953106  0.74964394  1

@@ -13,13 +13,13 @@ torchvision>=0.15.0
 torchaudio>=2.0.0
 
 # Materials science packages
-pymatgen>=2023.3.10
+pymatgen==2023.3.10
 matminer>=0.7.0
 smact>=2.2.0
 ase>=3.22.0  # For ASE integration with ORB models
 
 # Machine learning models
-chgnet>=0.3.0  # For crystal structure prediction
+chgnet==0.3.0  # For crystal structure prediction
 orb-models>=0.5.0  # Optional, for ORB interatomic potentials
 sevenn>=0.10.1  # Optional, SevenNet
 pytorch-lightning>=1.9.0  # Used in flowmm model
