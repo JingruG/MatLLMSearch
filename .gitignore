@@ -6,3 +6,4 @@ __pycache__/
 oracle/resources/*
 .ipynb_checkpoints
 results/*
+oracle/visualization/*
