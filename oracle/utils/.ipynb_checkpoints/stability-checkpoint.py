@@ -78,8 +78,9 @@ class StabilityCalculator:
             relaxation = self.relax_structure(structure)
             if not relaxation or not relaxation['final_structure']:
                 return None
-            initial_energy = relaxation['trajectory']['energies'][0]
-            final_energy = relaxation['trajectory']['energies'][-1] # not per atom
+            energies = relaxation['trajectory'].energies if hasattr(relaxation['trajectory'], 'energies') else relaxation['trajectory']['energies']
+            initial_energy = energies[0] 
+            final_energy = energies[-1] # not per atom
             final_structure = relaxation['final_structure']
             # energy_relaxed = self.compute_energy_per_atom(structure_relaxed)
             delta_e = final_energy - initial_energy if final_energy is not None else None
