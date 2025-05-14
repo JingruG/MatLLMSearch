@@ -261,9 +261,9 @@ class StructureEvaluator:
                 if not structure.is_3d_periodic:
                     print('is not 3d periodic')
                     continue
-                if self.no_isolate_atom(structure):
-                    print('has isolated atom')
-                    continue
+                # if self.no_isolate_atom(structure):
+                #     print('has isolated atom')
+                #     continue
                 if self.check_balanced_composition(structure) and structure not in balanced_structures:
                     balanced_structures.append(structure)
                     balanced_parents.append(parents_list[idx])
