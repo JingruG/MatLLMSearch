@@ -3,6 +3,7 @@ __pycache__/
 *.so
 .env
 .env.*
+.ipynb_checkpoints
 oracle/resources/*
 oracle/.ipynb_checkpoints
 results/*
