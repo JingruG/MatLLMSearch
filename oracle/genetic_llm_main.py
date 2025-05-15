@@ -337,6 +337,8 @@ def process_stability_results(stability_results, structures):
         structure=structures,
         composition=[s.composition for s in structures],
         objective=multi_objective_optimizer(df),
+        energy=df['energy'].tolist(),
+        energy_relaxed=df['energy_relaxed'].tolist(),
         e_hull_distance=df['e_hull_distance'].tolist(),
         delta_e=df['delta_e'].tolist(),
         bulk_modulus=df['bulk_modulus'].tolist(),

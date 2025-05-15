@@ -12,8 +12,8 @@ from chgnet.model.dynamics import EquationOfState
 
 @dataclass
 class StabilityResult:
-    energy: float = None
-    energy_relaxed: float = None
+    energy: float = np.inf
+    energy_relaxed: float = np.inf
     delta_e: float = np.inf
     e_hull_distance: float = np.inf
     bulk_modulus: float = -np.inf
@@ -82,7 +82,6 @@ class StabilityCalculator:
             final_energy = energies[-1] # not per atom
             final_structure = relaxation['final_structure']
             # energy_relaxed = self.compute_energy_per_atom(structure_relaxed)
-            delta_e = final_energy - initial_energy if final_energy is not None else None
             e_hull_distance = None if wo_ehull else self.compute_ehull_dist(final_structure, final_energy) 
             bulk_modulus = None if wo_bulk else self.compute_bulk_modulus(structure)
             bulk_modulus_relaxed = None if wo_bulk else self.compute_bulk_modulus(final_structure)
@@ -91,12 +90,13 @@ class StabilityCalculator:
                 csp_relaxation = self.relax_structure(structure, mlip=self.mlip)
                 if not csp_relaxation or not csp_relaxation['final_structure']:
                     return None
-                csp_energies = csp_relaxation['trajectory']['energies']
+                csp_energies = csp_relaxation['trajectory'].energies if hasattr(csp_relaxation['trajectory'], 'energies') else csp_relaxation['trajectory']['energies']
                 initial_energy = csp_energies[0] # overwrite
                 final_energy = csp_energies[-1]
             
             initial_energy = initial_energy / structure.num_sites
             final_energy = final_energy / structure.num_sites
+            delta_e = final_energy - initial_energy if final_energy is not None else None
             
             return StabilityResult(
                 energy=initial_energy,
@@ -160,7 +160,7 @@ class StabilityCalculator:
                 
                 # Perform relaxation with BFGS
                 optimizer = BFGS(atoms)
-                optimizer.run(fmax=0.05, steps=500)
+                optimizer.run(fmax=0.05, steps=100)
                 
                 # Store final energy
                 final_energy = atoms.get_potential_energy()
