@@ -265,7 +265,7 @@ class StructureEvaluator:
                     if self.no_isolate_atom(structure):
                         print('has isolated atom')
                         continue
-                    if not self.check_balanced_composition(structure):):
+                    if not self.check_balanced_composition(structure):
                         print('compound not charge balanced')
                         continue
                 if structure not in balanced_structures:
