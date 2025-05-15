@@ -225,6 +225,8 @@ class StructureEvaluator:
                              for pp in generation.parents],
                 'Objective': generation.objective,
                 'Composition': generation.composition,
+                'Energy': generation.energy,
+                'EnergyRelaxed': generation.energy_relaxed,
                 'DeltaE': generation.delta_e,
                 'EHullDistance': generation.e_hull_distance,
                 'BulkModulus': generation.bulk_modulus,

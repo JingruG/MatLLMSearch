@@ -200,7 +200,7 @@ def run_generation_iteration(
         stability_results = [None] * len(llm_structures)
     
     generation_result = process_stability_results(stability_results, llm_structures)
-    list_attrs = ['parents', 'composition', 'objective', 'e_hull_distance', 
+    list_attrs = ['parents', 'composition', 'objective', 'e_hull_distance', 'energy','energy_relaxed',
                      'delta_e', 'crystal', 'bulk_modulus', 'structure_relaxed', 'bulk_modulus_relaxed']
     for attr in list_attrs:
         value = getattr(generation_result, attr)
@@ -226,6 +226,8 @@ def run_generation_iteration(
         parents=llm_parents,  
         composition=generation_result.composition,
         objective=generation_result.objective,
+        energy=generation_result.energy,
+        energy_relaxed=generation_result.energy_relaxed,
         e_hull_distance=generation_result.e_hull_distance,
         delta_e=generation_result.delta_e,
         source=['llm'] * len(generation_result.structure),
@@ -311,6 +313,8 @@ def process_stability_results(stability_results, structures):
             result_dict = {
                 'e_hull_distance': r.e_hull_distance if r.e_hull_distance is not None else float('inf'),
                 'delta_e': r.delta_e if r.delta_e is not None else float('inf'),
+                'energy': r.energy if r.energy is not None else float('inf'),
+                'energy_relaxed': r.energy_relaxed if r.energy_relaxed is not None else float('inf'),
                 'bulk_modulus': r.bulk_modulus if r.bulk_modulus is not None else float('-inf'),
                 'bulk_modulus_relaxed': r.bulk_modulus_relaxed if r.bulk_modulus_relaxed is not None else float('-inf'),
                 'structure_relaxed': getattr(r, 'structure_relaxed', None)
