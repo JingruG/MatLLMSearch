@@ -169,7 +169,7 @@ def run_generation_iteration(
     
     
     # Filter both structures and parents
-    llm_structures, llm_parents = evaluator.filter_balanced_structures(llm_structures, llm_parents)
+    llm_structures, llm_parents = evaluator.filter_balanced_structures(llm_structures, llm_parents, args.task)
     if args.task == "csp":
         target_comp = Composition(args.csp_compound)
         target_elements = set(target_comp.elements)

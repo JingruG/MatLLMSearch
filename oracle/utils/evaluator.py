@@ -251,7 +251,7 @@ class StructureEvaluator:
             return True
         return False
 
-    def filter_balanced_structures(self, structure_list: List[Structure], parents_list: List[List[Structure]]) -> Tuple[List[Structure], Optional[List[List[Structure]]]]:
+    def filter_balanced_structures(self, structure_list: List[Structure], parents_list: List[List[Structure]], task) -> Tuple[List[Structure], Optional[List[List[Structure]]]]:
         """Filter structures to keep only those with balanced charges, along with their parents."""
         balanced_structures, balanced_parents = [], []
         
@@ -261,10 +261,13 @@ class StructureEvaluator:
                 if not structure.is_3d_periodic:
                     print('is not 3d periodic')
                     continue
-                # if self.no_isolate_atom(structure):
-                #     print('has isolated atom')
-                #     continue
-                # if self.check_balanced_composition(structure) and structure not in balanced_structures:
+                if not task == "csp":
+                    if self.no_isolate_atom(structure):
+                        print('has isolated atom')
+                        continue
+                    if not self.check_balanced_composition(structure):):
+                        print('compound not charge balanced')
+                        continue
                 if structure not in balanced_structures:
                     balanced_structures.append(structure)
                     balanced_parents.append(parents_list[idx])
