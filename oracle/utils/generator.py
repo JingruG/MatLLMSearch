@@ -38,6 +38,8 @@ class GenerationResult:
     parents: List[Any] = None
     composition: Optional[List[Any]] = None
     objective: Optional[List[float]] = None
+    energy: Optional[List[float]] = None
+    energy_relaxed: Optional[List[float]] = None
     e_hull_distance: Optional[List[float]] = None
     delta_e: Optional[List[float]] = None  
     source: Optional[Any] = None  

@@ -313,7 +313,7 @@ def process_stability_results(stability_results, structures):
             result_dict = {
                 'e_hull_distance': r.e_hull_distance if r.e_hull_distance is not None else float('inf'),
                 'delta_e': r.delta_e if r.delta_e is not None else float('inf'),
-                'energy': r.energy if r.energy is not None else float('inf'),
+                'energy': r.energy if r.energy_relaxed is not None else float('inf'),
                 'energy_relaxed': r.energy_relaxed if r.energy_relaxed is not None else float('inf'),
                 'bulk_modulus': r.bulk_modulus if r.bulk_modulus is not None else float('-inf'),
                 'bulk_modulus_relaxed': r.bulk_modulus_relaxed if r.bulk_modulus_relaxed is not None else float('-inf'),
