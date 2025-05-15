@@ -100,6 +100,17 @@ def matches_composition(comp, target_elements, target_ratio):
     reduced_comp, _ = comp.get_reduced_composition_and_factor()
     return all(abs(reduced_comp[el] - amt) <= 1e-6 for el, amt in target_ratio.items())
 
+def matches_structure_pattern(comp1, comp2):
+    if len(comp1.elements) != len(comp2.elements):
+        return False
+    reduced_comp1, _ = comp1.get_reduced_composition_and_factor()
+    reduced_comp2, _ = comp2.get_reduced_composition_and_factor()
+    ratios1 = sorted([reduced_comp1[el] for el in reduced_comp1.elements])
+    ratios2 = sorted([reduced_comp2[el] for el in reduced_comp2.elements])
+    if len(ratios1) != len(ratios2):
+        return False
+    return all(abs(r1 - r2) <= 1e-6 for r1, r2 in zip(ratios1, ratios2))
+    
 def initialize_task_data(evaluator: StructureEvaluator, args: argparse.Namespace):
     """Initialize and prepare task data."""
 
@@ -128,7 +139,7 @@ def initialize_task_data(evaluator: StructureEvaluator, args: argparse.Namespace
         target_comp = Composition(args.csp_compound)
         target_elements = set(target_comp.elements)
         # seed_structures_df = seed_structures_df[seed_structures_df['composition'].apply(matches_composition)]
-        seed_structures_df = seed_structures_df[seed_structures_df['composition'].apply(lambda comp: contains_elements(comp, target_elements))]
+        seed_structures_df = seed_structures_df[seed_structures_df['composition'].apply(lambda comp: matches_structure_pattern(comp, target_comp))]
 
     # elif args.task == "csp_MnO2":
     #     seed_structures_df = seed_structures_df[np.isfinite(seed_structures_df['e_hull_distance'])]
@@ -365,7 +376,7 @@ def get_parent_generation(evaluator, stability_calculator, input_generation: Gen
     elif args.task == "csp":
         target_comp = Composition(args.csp_compound)
         target_elements = set(target_comp.elements)
-        generation_df = generation_df[generation_df['composition'].apply(lambda comp: contains_elements(comp, target_elements))]
+        generation_df = generation_df[generation_df['composition'].apply(lambda comp: matches_structure_pattern(comp, target_comp))]
 
     else:
         raise ValueError(f"Invalid task: {args.task}")
