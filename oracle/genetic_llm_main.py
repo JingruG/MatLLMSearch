@@ -88,28 +88,28 @@ def filter_valid_values(df, columns):
     for col in columns:
         mask &= ~(df[col].isna() | df[col].isin([np.inf, -np.inf]) | (df[col] == 0))
     return mask
-
-def contains_elements(comp, target_elements):
-    """Check if composition contains all target elements (Ag, O) regardless of ratio."""
-    return all(el in comp.elements for el in target_elements)
-
-def matches_composition(comp, target_elements, target_ratio):
-    """Check if composition contains all target elements (Ag, O) regardless of ratio."""
-    if not all(el in comp.elements for el in target_elements):
+    
+def contains_elements(comp, target_comp):
+    """Check if composition contains all target elements regardless of ratio."""
+    return all(el in comp.elements for el in target_comp.elements)
+    
+def matches_composition(comp, target_comp):
+    """Check if composition has exactly the same elements and atom counts as target."""
+    if set(comp.elements) != set(target_comp.elements):
         return False
-    reduced_comp, _ = comp.get_reduced_composition_and_factor()
-    return all(abs(reduced_comp[el] - amt) <= 1e-6 for el, amt in target_ratio.items())
-
-def matches_structure_pattern(comp1, comp2):
+    return all(abs(comp[el] - target_comp[el]) <= 1e-6 for el in target_comp.elements)
+    
+def matches_unit_cell_pattern(comp1, comp2):
+    """Check if two compositions have the same number of elements and exact atom count pattern."""
     if len(comp1.elements) != len(comp2.elements):
         return False
-    reduced_comp1, _ = comp1.get_reduced_composition_and_factor()
-    reduced_comp2, _ = comp2.get_reduced_composition_and_factor()
-    ratios1 = sorted([reduced_comp1[el] for el in reduced_comp1.elements])
-    ratios2 = sorted([reduced_comp2[el] for el in reduced_comp2.elements])
-    if len(ratios1) != len(ratios2):
+    total_atoms1 = sum(comp1.values())
+    total_atoms2 = sum(comp2.values())
+    if total_atoms1 != total_atoms2:
         return False
-    return all(abs(r1 - r2) <= 1e-6 for r1, r2 in zip(ratios1, ratios2))
+    counts1 = sorted([comp1[el] for el in comp1.elements])
+    counts2 = sorted([comp2[el] for el in comp2.elements])
+    return counts1 == counts2
     
 def initialize_task_data(evaluator: StructureEvaluator, args: argparse.Namespace):
     """Initialize and prepare task data."""
@@ -137,9 +137,8 @@ def initialize_task_data(evaluator: StructureEvaluator, args: argparse.Namespace
         # seed_structures_df = seed_structures_df[np.isfinite(seed_structures_df['e_hull_distance'])]
     elif args.task == "csp":
         target_comp = Composition(args.csp_compound)
-        target_elements = set(target_comp.elements)
         # seed_structures_df = seed_structures_df[seed_structures_df['composition'].apply(matches_composition)]
-        seed_structures_df = seed_structures_df[seed_structures_df['composition'].apply(lambda comp: matches_structure_pattern(comp, target_comp))]
+        seed_structures_df = seed_structures_df[seed_structures_df['composition'].apply(lambda comp: matches_unit_cell_pattern(comp, target_comp))]
 
     # elif args.task == "csp_MnO2":
     #     seed_structures_df = seed_structures_df[np.isfinite(seed_structures_df['e_hull_distance'])]
@@ -183,11 +182,8 @@ def run_generation_iteration(
     llm_structures, llm_parents = evaluator.filter_balanced_structures(llm_structures, llm_parents, args.task)
     if args.task == "csp":
         target_comp = Composition(args.csp_compound)
-        target_elements = set(target_comp.elements)
-        target_ratio = target_comp.get_el_amt_dict()
-        
         filtered_data = [(s, p) for s, p in zip(llm_structures, llm_parents) 
-                         if matches_composition(s.composition, target_elements, target_ratio)]
+                         if matches_composition(s.composition, target_comp)]
         
         llm_structures, llm_parents = zip(*filtered_data) if filtered_data else ([], [])
         llm_structures, llm_parents = list(llm_structures), list(llm_parents)
@@ -376,7 +372,7 @@ def get_parent_generation(evaluator, stability_calculator, input_generation: Gen
     elif args.task == "csp":
         target_comp = Composition(args.csp_compound)
         target_elements = set(target_comp.elements)
-        generation_df = generation_df[generation_df['composition'].apply(lambda comp: matches_structure_pattern(comp, target_comp))]
+        generation_df = generation_df[generation_df['composition'].apply(lambda comp: matches_unit_cell_pattern(comp, target_comp))]
 
     else:
         raise ValueError(f"Invalid task: {args.task}")
