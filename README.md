@@ -1,4 +1,4 @@
-#README
+# README
 
 This code implements an evolutionary search pipeline for crystal structure generation (CSG) and crystal structure prediction (CSP) with Large Language Models (LLMs) without fine-tuning.
 
