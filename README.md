@@ -70,18 +70,3 @@ For crystal structure prediction of Ag6O2:
 ```bash
 python main.py --task csp --opt_goal e_hull_distance --max_iter 10 --csp_compound "Ag6O2"
 ```
-
-## Citation
-
-If you use MatLLMSearch, please cite our paper:
-
-```
-@article{gan2025matllmsearch,
-  title={Large Language Models Are Innate Crystal Structure Generators},
-  author={Gan, Jingru and Zhong, Peichen and Du, Yuanqi and Zhu, Yanqiao and 
-          Duan, Chenru and Wang, Haorui and Gomes, Carla P. and Persson, Kristin and 
-          Schwalbe-Koda, Daniel and Wang, Wei},
-  journal={arXiv preprint arXiv:},
-  year={2025}
-}
-```
