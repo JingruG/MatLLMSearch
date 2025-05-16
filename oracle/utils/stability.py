@@ -48,8 +48,7 @@ class StabilityCalculator:
         elif self.mlip == "sevenet":
             from sevenn.calculator import SevenNetD3Calculator
             self.calculator = SevenNetD3Calculator('7net-mf-ompa', modal='omat24', device='cuda')
-        else:
-            raise ValueError(f"Unknown MLIP: {mlip}")
+
             
     def _pymatgen_to_ase(self, structure):
         """Convert pymatgen Structure to ASE Atoms"""

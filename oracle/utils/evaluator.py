@@ -264,7 +264,7 @@ class StructureEvaluator:
                     print('is not 3d periodic')
                     continue
                 if not task == "csp":
-                    if self.no_isolate_atom(structure):
+                    if not self.no_isolate_atom(structure):
                         print('has isolated atom')
                         continue
                     if not self.check_balanced_composition(structure):
