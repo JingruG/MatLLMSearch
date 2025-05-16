@@ -188,7 +188,7 @@ class LLMManager:
                 lora_path = snapshot_download(repo_id="JennyGan/70b-mp20-14000")
             else:
                 base_model_id = "meta-llama/Llama-3.1-8B-Instruct"
-                lora_path = "/local2/jrgan/M2Hub/crystal-text-llm/exp/7b-test-run/checkpoint-7500"             
+                lora_path = "/local2/anonymous/M2Hub/crystal-text-llm/exp/7b-test-run/checkpoint-7500"             
             llm = LLM(model=base_model_id, enable_lora=True, 
                 dtype=torch.float16,
                 tensor_parallel_size=tensor_parallel_size,
