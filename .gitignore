@@ -4,6 +4,7 @@ __pycache__/
 .env
 .env.*
 .ipynb_checkpoints
+.vscode/*
 evaluation/*
 results/*
 oracle/resources/*
