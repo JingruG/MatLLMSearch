@@ -6,8 +6,9 @@ from dataclasses import dataclass
 from utils.basic_eval import timeout, TimeoutError
 from utils.e_hull_calculator import EHullCalculator
 from pymatgen.core.structure import Structure
-from chgnet.model import CHGNet
-from chgnet.model import StructOptimizer
+from pymatgen.io.ase import AseAtomsAdaptor
+from chgnet.graph import CrystalGraphConverter
+from chgnet.model import CHGNet, StructOptimizer
 from chgnet.model.dynamics import EquationOfState
 
 @dataclass
@@ -24,10 +25,14 @@ class StabilityCalculator:
     def __init__(self, mlip="chgnet", ppd_path=""):
         self.mlip = mlip
         self.e_hull = EHullCalculator(ppd_path)
-        from pymatgen.io.ase import AseAtomsAdaptor
         self.adaptor = AseAtomsAdaptor()
         self.chgnet = CHGNet.load()
-        self.relaxer = StructOptimizer()
+        converter = CrystalGraphConverter(
+            atom_graph_cutoff=6, bond_graph_cutoff=3, algorithm="fast", on_isolated_atoms="warn"
+        )
+
+        self.chgnet.graph_converter = converter
+        self.relaxer = StructOptimizer(model=self.chgnet)
         self.EquationOfState = EquationOfState
         if self.mlip == "orb-v3":
             import ase
@@ -82,7 +87,7 @@ class StabilityCalculator:
             final_structure = relaxation['final_structure']
             # energy_relaxed = self.compute_energy_per_atom(structure_relaxed)
             e_hull_distance = None if wo_ehull else self.compute_ehull_dist(final_structure, final_energy) 
-            bulk_modulus = None if wo_bulk else self.compute_bulk_modulus(structure)
+            bulk_modulus = None
             bulk_modulus_relaxed = None if wo_bulk else self.compute_bulk_modulus(final_structure)
 
             if self.mlip in ["orb-v3", "sevenet"]:

@@ -140,9 +140,6 @@ def initialize_task_data(evaluator: StructureEvaluator, args: argparse.Namespace
         # seed_structures_df = seed_structures_df[seed_structures_df['composition'].apply(matches_composition)]
         seed_structures_df = seed_structures_df[seed_structures_df['composition'].apply(lambda comp: matches_unit_cell_pattern(comp, target_comp))]
 
-    # elif args.task == "csp_MnO2":
-    #     seed_structures_df = seed_structures_df[np.isfinite(seed_structures_df['e_hull_distance'])]
-    #     seed_structures_df = seed_structures_df[seed_structures_df['composition'].apply(has_MnO2)]
     else:
         raise ValueError(f"Invalid task: {args.task}")    
     seed_structures_df = seed_structures_df[required_columns].sample(frac=1, random_state=args.random_seed)
@@ -336,7 +333,7 @@ def process_stability_results(stability_results, structures):
     return GenerationResult(
         structure=structures,
         composition=[s.composition for s in structures],
-        objective=multi_objective_optimizer(df),
+        objective=multi_objective_optimizer(df, method='weighted'),
         energy=df['energy'].tolist(),
         energy_relaxed=df['energy_relaxed'].tolist(),
         e_hull_distance=df['e_hull_distance'].tolist(),
