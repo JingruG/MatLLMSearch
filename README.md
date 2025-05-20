@@ -20,6 +20,12 @@ This is the implementation for **MatLLMSearch: Large Language Models Are Innate 
   <img src="https://drive.google.com/uc?export=view&id=1-KWyKDwJRVH7mB-5sXZTNvwglYHJEcKq" alt="pareto_evolution" loop>
 </div>
 
+### Crystal Structure Prediction Examples
+
+<div align="center">
+  <img src="https://drive.google.com/uc?export=view&id=1-KWyKDwJRVH7mB-5sXZTNvwglYHJEcKq" alt="csp_examples" loop>
+</div>
+
 ## Prerequisites
 
 ### Required Python Packages

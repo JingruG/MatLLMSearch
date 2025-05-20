@@ -472,6 +472,7 @@ def cif_str_to_crystal(cif_str):
     
     return crystal
 
+@timeout(30, error_message="Structure to crystal conversion timed out after 30 seconds")
 def structure_to_crystal(structure):
     try:
         crystal = Crystal({
@@ -486,109 +487,3 @@ def structure_to_crystal(structure):
         return None
     
     return crystal
-
-
-baseline_numbers = pd.DataFrame([
-    {'method': 'Train', 'struct_valid': 1.0, 'comp_valid': 0.9113, 'cov_recall': 1.0, 'cov_precision': 1.0, 'wdist_density': 0.051, 'wdist_num_elems': 0.016},
-    {'method': 'FTCP', 'struct_valid': 0.0155, 'comp_valid': 0.4837, 'cov_recall': 0.047, 'cov_precision': 0.0009, 'wdist_density': 23.71, 'wdist_num_elems': 0.736},
-    {'method': 'GSchNet', 'struct_valid': 0.9965, 'comp_valid': 0.7596, 'cov_recall': 0.3833, 'cov_precision': 0.9957, 'wdist_density': 3.034, 'wdist_num_elems': 0.641},
-    {'method': 'PGSchNet', 'struct_valid': 0.7751, 'comp_valid': 0.7640, 'cov_recall': 0.4193, 'cov_precision': 0.9974, 'wdist_density': 4.04, 'wdist_num_elems': 0.623},
-    {'method': 'CDVAE', 'struct_valid': 1.0, 'comp_valid': 0.867, 'cov_recall': 0.9915, 'cov_precision': 0.9949, 'wdist_density': 0.688, 'wdist_num_elems': 1.432},
-    {'method': 'LM-CH', 'struct_valid': 0.8481, 'comp_valid': 0.8355, 'cov_recall': 0.9925, 'cov_precision': 0.9789, 'wdist_density': 0.864, 'wdist_num_elems': 0.132},
-    {'method': 'LM-AC', 'struct_valid': 0.9581, 'comp_valid': 0.8887, 'cov_recall': 0.996, 'cov_precision': 0.9855, 'wdist_density': 0.696, 'wdist_num_elems': 0.092},
-])
-
-results_df_fn = "generative_model_results.csv"
-
-def main(args):
-    if os.path.exists(results_df_fn):
-        results_df = pd.read_csv(results_df_fn)
-    else:
-        baseline_numbers.to_csv(results_df_fn, index=False)
-        results_df = baseline_numbers
-
-    if args.model_name in results_df["method"].values:
-        print(f"Skipping {args.model_name} because it already exists in {results_df_fn}")
-        return
-
-    csv_fns = [
-        x for x in glob.glob(args.samples_path) 
-            if len(open(x).readlines()) > 1 and 'm3gnet_relaxed_energy' not in x
-    ]
-    if len(csv_fns) == 0:
-        return
-    
-    pred_cifs = []
-    for x in csv_fns:
-        try:
-            df = pd.read_csv(x)
-            pred_cifs += list(df["cif"].dropna())
-        except:
-            pass
-
-    pred_cifs = pred_cifs[::-1]
-
-    print(len(pred_cifs))
-
-    pred_crys = [x for x in p_map(cif_str_to_crystal, pred_cifs) if x is not None]
-
-    if len(pred_crys) > 10000:
-        random_idx = np.random.choice(len(pred_crys), 10000)
-        pred_crys = [pred_crys[x] for x in random_idx]
-
-    gt_cov_cifs = pd.read_csv(args.test_cov_path)["cif"]
-
-    gt_cov_crys_fn = args.test_cov_path.replace(".csv", "_cached.pkl")
-    if not os.path.exists(gt_cov_crys_fn):
-        gt_cov_crys = p_map(cif_str_to_crystal, gt_cov_cifs)
-        pickle.dump(gt_cov_crys, open(gt_cov_crys_fn, "wb"))
-    else:
-        gt_cov_crys = pickle.load(open(gt_cov_crys_fn, "rb"))
-    
-    gt_novelty_cifs = pd.read_csv(args.test_novelty_path)["cif"]
-
-    gt_novelty_crys_fn = args.test_novelty_path.replace(".csv", "_cached.pkl")
-    if not os.path.exists(gt_novelty_crys_fn):
-        gt_novelty_crys = p_map(cif_str_to_crystal, gt_novelty_cifs)
-        pickle.dump(gt_novelty_crys, open(gt_novelty_crys_fn, "wb"))
-    else:
-        gt_novelty_crys = pickle.load(open(gt_novelty_crys_fn, "rb"))
-
-    valid_crys = [x for x in pred_crys if x.valid]
-
-    print("Number of pred crystals: ", len(pred_crys))
-    print("Number of valid crystals: ", len(valid_crys))
-
-    metrics = CDVAEGenEval(
-        pred_crys, 
-        gt_cov_crys,
-        gt_novelty_crys,
-        n_samples=len(valid_crys), 
-        eval_model_name='mp20'
-    ).get_metrics()
-
-    metrics = {k: v for k,v in metrics.items()}
-    metrics['method'] = args.model_name
-
-    results_df = pd.read_csv(results_df_fn)
-
-    results_df = pd.concat([
-        results_df,
-        pd.DataFrame([metrics])
-    ])
-
-    results_df.to_csv(results_df_fn, index=False)
-
-    print(results_df)
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--model_name", type=str, required=True)
-    parser.add_argument("--test_cov_path", type=str, default='data/basic/test.csv')
-    parser.add_argument("--test_novelty_path", type=str, default='data/basic/train.csv')
-    parser.add_argument("--samples_path", type=str, required=True)
-    args = parser.parse_args()
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        main(args)

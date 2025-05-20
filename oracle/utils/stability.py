@@ -22,17 +22,21 @@ class StabilityResult:
     structure_relaxed: Optional[Structure] = None
 
 class StabilityCalculator:
-    def __init__(self, mlip="chgnet", ppd_path=""):
+    def __init__(self, mlip="chgnet", ppd_path="", device="cuda"):
+        if device is None:
+            self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        else:
+            self.device = device
         self.mlip = mlip
         self.e_hull = EHullCalculator(ppd_path)
         self.adaptor = AseAtomsAdaptor()
-        self.chgnet = CHGNet.load()
+        self.chgnet = CHGNet.load().to(self.device)
         converter = CrystalGraphConverter(
             atom_graph_cutoff=6, bond_graph_cutoff=3, algorithm="fast", on_isolated_atoms="warn"
         )
-
         self.chgnet.graph_converter = converter
-        self.relaxer = StructOptimizer(model=self.chgnet)
+        # self.relaxer = StructOptimizer(model=self.chgnet)
+        self.relaxer = StructOptimizer()
         self.EquationOfState = EquationOfState
         if self.mlip == "orb-v3":
             import ase
