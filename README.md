@@ -17,7 +17,20 @@ This code implements an evolutionary search pipeline for crystal structure gener
 ### How Pareto Frontiers are pushed during Iterations under Varied Optimization Objectives
 
 <div align="center">
-  <img src="https://drive.google.com/uc?export=view&id=1-KWyKDwJRVH7mB-5sXZTNvwglYHJEcKq" alt="pareto_evolution" loop>
+  <img src="assets/pareto_evolution.gif" alt="pareto_evolution" loop>
+</div>
+
+### Crystal Structure Prediction Examples
+<div align="center">
+  <img src="assets/crystal_structures_Ag6O2.gif" alt="Ag6O2_csp_examples" width="250">
+  <img src="assets/crystal_structures_Bi2F8.gif" alt="Bi2F8_csp_examples" width="250">
+  <img src="assets/crystal_structures_Co4B2.gif" alt="Co4B2_csp_examples" width="250">
+</div>
+
+<div align="center" style="margin-top: 10px;">
+  <img src="assets/crystal_structures_KZnF3.gif" alt="KZnF3_csp_examples" width="250">
+  <img src="assets/crystal_structures_Cr2O4.gif" alt="Cr2O4_csp_examples" width="250">
+  <img src="assets/crystal_structures_YMg3.gif" alt="YMg3_csp_examples" width="250">
 </div>
 
 ## Prerequisites

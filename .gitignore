@@ -4,9 +4,13 @@ __pycache__/
 .env
 .env.*
 .ipynb_checkpoints
+.vscode/*
+evaluation/*
+results/*
 oracle/resources/*
 oracle/.ipynb_checkpoints
-results/*
 oracle/visualization/*
 oracle/*.ipynb
 oracle/utils/.ipynb_checkpoints
+visualization/*
+bond_graph_error.cif

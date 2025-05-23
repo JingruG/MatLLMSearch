@@ -50,14 +50,25 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument('--ppd_path', default='oracle/resources/2023-02-07-ppd-mp.pkl.gz')
     
     parser.add_argument('--opt_goal', choices=['e_hull_distance', 'bulk_modulus_relaxed', 'multi-obj'], default='e_hull_distance')
-    parser.add_argument('--task', choices=['csg', 'csp', 'csp_MnO2'], default='csg')
+    parser.add_argument('--task', choices=['csg', 'csp'], default='csg')
     parser.add_argument('--csp_compound', choices=['Ag6O2', 'Bi2F8', 'Co2Sb2', 'Co4B2', 'Cr4Si4', 'KZnF3', "Sr2O4", "YMg3"], default='Ag6O2')
+    
+    parser.add_argument('--resume', type=str, default='')
     
     return parser.parse_args()
 
 
 def initialize_models(args: argparse.Namespace) -> Tuple:
     """Initialize all required models."""
+    if torch.cuda.is_available():
+        print(f"CUDA available: {torch.cuda.is_available()}")
+        print(f"Number of CUDA devices: {torch.cuda.device_count()}")
+        print(f"Current CUDA device: {torch.cuda.current_device()}")
+        print(f"CUDA device name: {torch.cuda.get_device_name(0)}")
+        device = torch.device('cuda:0')
+    else:
+        print("CUDA not available, using CPU")
+        device = torch.device('cpu')
     
     base_path = Path(f'{args.save_path}/{args.save_label}')
     base_path.mkdir(parents=True, exist_ok=True)
@@ -76,7 +87,7 @@ def initialize_models(args: argparse.Namespace) -> Tuple:
     evaluator = StructureEvaluator(base_path=base_path)
     mlip = "orb-v3" if args.task == "csp" else "chgnet" # "sevenet" "orb-v3" "chgnet" 
     # mlip = "chgnet" # "sevenet" "orb-v3" "chgnet" 
-    stability_calculator = StabilityCalculator(mlip=mlip, ppd_path=args.ppd_path)
+    stability_calculator = StabilityCalculator(mlip=mlip, ppd_path=args.ppd_path, device=device)
     
     # evaluator, stability_calculator = None, None
     
@@ -140,9 +151,6 @@ def initialize_task_data(evaluator: StructureEvaluator, args: argparse.Namespace
         # seed_structures_df = seed_structures_df[seed_structures_df['composition'].apply(matches_composition)]
         seed_structures_df = seed_structures_df[seed_structures_df['composition'].apply(lambda comp: matches_unit_cell_pattern(comp, target_comp))]
 
-    # elif args.task == "csp_MnO2":
-    #     seed_structures_df = seed_structures_df[np.isfinite(seed_structures_df['e_hull_distance'])]
-    #     seed_structures_df = seed_structures_df[seed_structures_df['composition'].apply(has_MnO2)]
     else:
         raise ValueError(f"Invalid task: {args.task}")    
     seed_structures_df = seed_structures_df[required_columns].sample(frac=1, random_state=args.random_seed)
@@ -182,8 +190,7 @@ def run_generation_iteration(
     llm_structures, llm_parents = evaluator.filter_balanced_structures(llm_structures, llm_parents, args.task)
     if args.task == "csp":
         target_comp = Composition(args.csp_compound)
-        filtered_data = [(s, p) for s, p in zip(llm_structures, llm_parents) 
-                         if matches_composition(s.composition, target_comp)]
+        filtered_data = [(s, p) for s, p in zip(llm_structures, llm_parents) if matches_composition(s.composition, target_comp)]
         
         llm_structures, llm_parents = zip(*filtered_data) if filtered_data else ([], [])
         llm_structures, llm_parents = list(llm_structures), list(llm_parents)
@@ -258,8 +265,7 @@ def normalized_weighted_sum(df, e_weight=0.7, b_weight=0.3, winsorize=True):
         if e_max == e_min:
             e_normalized = np.zeros_like(e_values)
         else:
-            e_normalized = np.array([(e - e_min) / (e_max - e_min) 
-                                     if not np.isnan(e) else 1.0 for e in e_values])
+            e_normalized = np.array([(e - e_min) / (e_max - e_min) if not np.isnan(e) else 1.0 for e in e_values])
     else:
         e_normalized = np.zeros_like(e_values)
     valid_b = b_values[~np.isnan(b_values) & (b_values > 0)]  # Ignore zeros from failed calculations
@@ -336,7 +342,7 @@ def process_stability_results(stability_results, structures):
     return GenerationResult(
         structure=structures,
         composition=[s.composition for s in structures],
-        objective=multi_objective_optimizer(df),
+        objective=multi_objective_optimizer(df, method='weighted'),
         energy=df['energy'].tolist(),
         energy_relaxed=df['energy_relaxed'].tolist(),
         e_hull_distance=df['e_hull_distance'].tolist(),
@@ -350,29 +356,42 @@ def get_parent_generation(evaluator, stability_calculator, input_generation: Gen
                      full_df: pd.DataFrame, sort_target: str, args: argparse.Namespace, iter: int) -> GenerationResult:
     """Get sorted generation combining input structures and parent generation results."""
     interested_columns = ['structure', 'composition', 'composition_str', 'e_hull_distance', 'delta_e', 'bulk_modulus', 'bulk_modulus_relaxed', 'source']
-    if (input_generation and parent_generation and len(input_generation.structure) and not any(element is None for element in input_generation.structure) and len(full_df) >= args.topk * args.context_size):
-        generation_df = pd.DataFrame({
-            'structure': input_generation.structure + parent_generation.structure,
-            'composition': [s.composition for s in (input_generation.structure + parent_generation.structure)],
-            'e_hull_distance': input_generation.e_hull_distance + parent_generation.e_hull_distance,
-            'delta_e': input_generation.delta_e + parent_generation.delta_e,
-            'bulk_modulus': input_generation.bulk_modulus + parent_generation.bulk_modulus,
-            'bulk_modulus_relaxed': input_generation.bulk_modulus_relaxed + parent_generation.bulk_modulus_relaxed,
-            'source': input_generation.source + parent_generation.source
+
+    generation_df = pd.DataFrame(columns=interested_columns)
+    # Combine input and parent generations when available
+    if input_generation and len(input_generation.structure) > 0:
+        input_source = input_generation.source if hasattr(input_generation, 'source') and input_generation.source else ['llm'] * len(input_generation.structure)
+        input_df = pd.DataFrame({
+            'structure': input_generation.structure,
+            'composition': [s.composition for s in input_generation.structure],
+            'e_hull_distance': input_generation.e_hull_distance if hasattr(input_generation, 'e_hull_distance') else [float('inf')] * len(input_generation.structure),
+            'delta_e': input_generation.delta_e if hasattr(input_generation, 'delta_e') else [float('inf')] * len(input_generation.structure),
+            'bulk_modulus': input_generation.bulk_modulus if hasattr(input_generation, 'bulk_modulus') else [float('-inf')] * len(input_generation.structure),
+            'bulk_modulus_relaxed': input_generation.bulk_modulus_relaxed if hasattr(input_generation, 'bulk_modulus_relaxed') else [float('-inf')] * len(input_generation.structure),
+            'source': input_source
         })
-        ascending = (sort_target not in ['bulk_modulus', 'bulk_modulus_relaxed'])  
-        sampled_seeds_df = full_df[interested_columns].sample(n=args.topk * args.context_size)
-        # generation_df = pd.concat([generation_df, full_df[interested_columns]], ignore_index=True)
+        generation_df = pd.concat([generation_df, input_df], ignore_index=True)
+    if parent_generation and len(parent_generation.structure) > 0:
+        parent_source = parent_generation.source if hasattr(parent_generation, 'source') and parent_generation.source else ['parent'] * len(parent_generation.structure)
+        parent_df = pd.DataFrame({
+            'structure': parent_generation.structure,
+            'composition': [s.composition for s in parent_generation.structure],
+            'e_hull_distance': parent_generation.e_hull_distance if hasattr(parent_generation, 'e_hull_distance') else [float('inf')] * len(parent_generation.structure),
+            'delta_e': parent_generation.delta_e if hasattr(parent_generation, 'delta_e') else [float('inf')] * len(parent_generation.structure),
+            'bulk_modulus': parent_generation.bulk_modulus if hasattr(parent_generation, 'bulk_modulus') else [float('-inf')] * len(parent_generation.structure),
+            'bulk_modulus_relaxed': parent_generation.bulk_modulus_relaxed if hasattr(parent_generation, 'bulk_modulus_relaxed') else [float('-inf')] * len(parent_generation.structure),
+            'source': parent_source
+        })
+        generation_df = pd.concat([generation_df, parent_df], ignore_index=True)
+        
+        
+    generation_df['composition_str'] = generation_df['composition'].apply(lambda x: x.formula)
+    needed_count = args.topk * args.context_size - len(generation_df)
+    if needed_count > 0 and len(full_df) > 0:
+        sample_size = min(needed_count, len(full_df))
+        sampled_seeds_df = full_df[interested_columns].sample(n=sample_size)
         generation_df = pd.concat([generation_df, sampled_seeds_df], ignore_index=True)
-
-        generation_df['objective'] = multi_objective_optimizer(generation_df)
-        generation_df = generation_df.sort_values(sort_target, ascending=ascending)
-        generation_df['composition_str'] = generation_df['composition'].apply(lambda x: x.formula)
-    else:
-        generation_df = full_df[interested_columns].copy()
-        generation_df['objective'] = multi_objective_optimizer(generation_df)
-
-        generation_df = generation_df.sample(frac=1, random_state=args.random_seed)
+    generation_df['objective'] = multi_objective_optimizer(generation_df)
     
     if args.task == "csg":
         generation_df = generation_df.drop_duplicates(subset='composition_str')
@@ -420,6 +439,40 @@ def get_parent_generation(evaluator, stability_calculator, input_generation: Gen
     #     # Compute stability
     #     stability_results = stability_calculator.compute_stability(structures)
     #     return process_stability_results(stability_results, structures)
+   
+def resume_from_checkpoint(args):
+    """Load previous generations and resume from the last completed iteration."""
+    # Load generation history
+    generations_path = Path(f'{args.save_path}/{args.resume}/generations.csv')
+    generations_df = pd.read_csv(generations_path)
+    last_iter = generations_df['Iteration'].max()
+    print(f"Resuming iteration {last_iter} from checkpoint: {args.resume}")
+    last_iter_generations = generations_df[generations_df['Iteration'] == last_iter]
+    structures = []
+    for _, row in last_iter_generations.iterrows():
+        try:
+            structure = Structure.from_str(row['StructureRelaxed'], fmt='json')
+            structures.append(structure)
+        except Exception as e:
+            print(f"Error loading structure: {e}")
+    
+    # Create generation result object
+    generation_result = GenerationResult(
+        structure=structures,
+        parents=[None] * len(structures),  # No parent information for seeds
+        composition=[s.composition for s in structures],
+        e_hull_distance=last_iter_generations['EHullDistance'].tolist() if 'EHullDistance' in last_iter_generations.columns else [0.0] * len(structures),
+        delta_e=[0.0] * len(structures),
+        energy=[0.0] * len(structures),
+        energy_relaxed=[0.0] * len(structures),
+        source='llm',
+        bulk_modulus=[0.0] * len(structures),
+        bulk_modulus_relaxed=[0.0] * len(structures),
+        structure_relaxed=structures, 
+        objective=[0.0] * len(structures),
+    )
+    
+    return generation_result, last_iter   
         
 def main():
     """Main execution function."""
@@ -433,16 +486,15 @@ def main():
     
     # Initialize task data
     seed_structures_df = initialize_task_data(evaluator, args)
-    # Select initial generation
-    curr_generation = get_parent_generation(evaluator, stability_calculator, None, None, seed_structures_df, None, args, 0)
+    start_iter = 1
+    if args.resume:
+        curr_generation, last_iter = resume_from_checkpoint(args)
+        start_iter = last_iter + 1
+        curr_generation = get_parent_generation(evaluator, stability_calculator, None, None, seed_structures_df, None, args, 0)
     
     # Initialize results tracking
-    population_df = pd.DataFrame()
-    all_generated_df = pd.DataFrame()
-    eval_df = pd.DataFrame()
     start_time = time.time()
-    
-    for iteration in range(1, args.max_iter + 1):
+    for iteration in range(start_iter, args.max_iter + 1):
         generation_result = run_generation_iteration(
             iteration,
             curr_generation,
