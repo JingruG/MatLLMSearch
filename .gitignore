@@ -14,3 +14,4 @@ oracle/*.ipynb
 oracle/utils/.ipynb_checkpoints
 visualization/*
 bond_graph_error.cif
+*.zip
