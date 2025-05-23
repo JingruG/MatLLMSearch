@@ -5,13 +5,7 @@ This is the implementation for **MatLLMSearch: Large Language Models Are Innate 
 ## Pipeline Overview
 
 <div align="center">
-  <img src="https://drive.google.com/uc?export=view&id=1a26VlO27v8mK3P2jGv7XX3ZHKmzPpmUk" alt="main_pipeline" loop>
-</div>
-
-### Elemental Frequency in LLM-proposed Crystal Structures (Periodic Table)
-
-<div align="center">
-  <img src="https://drive.google.com/uc?export=view&id=1-Ex-mNduWgRSfPDooW89OT1snN2EXhc7" alt="periodic_animation" loop>
+  <img src="assets/pipeline.png" alt="main_pipeline">
 </div>
 
 ### How Pareto Frontiers are pushed during Iterations under Varied Optimization Objectives
@@ -29,7 +23,7 @@ This is the implementation for **MatLLMSearch: Large Language Models Are Innate 
 
 <div align="center" style="margin-top: 10px;">
   <img src="assets/crystal_structures_KZnF3.gif" alt="KZnF3_csp_examples" width="250">
-  <img src="assets/crystal_structures_Cr2O4.gif" alt="Cr2O4_csp_examples" width="250">
+  <img src="assets/crystal_structures_Sr2O4.gif" alt="Sr2O4_csp_examples" width="250">
   <img src="assets/crystal_structures_YMg3.gif" alt="YMg3_csp_examples" width="250">
 </div>
 
