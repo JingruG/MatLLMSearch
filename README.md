@@ -17,22 +17,20 @@ This is the implementation for **MatLLMSearch: Large Language Models Are Innate 
 ### How Pareto Frontiers are pushed during Iterations under Varied Optimization Objectives
 
 <div align="center">
-  <img src="https://drive.google.com/uc?export=view&id=1-KWyKDwJRVH7mB-5sXZTNvwglYHJEcKq" alt="pareto_evolution" loop>
+  <img src="assets/pareto_evolution.gif" alt="pareto_evolution" loop>
 </div>
 
 ### Crystal Structure Prediction Examples
-
 <div align="center">
-  <img src="https://drive.google.com/uc?export=view&id=1JFjFLeIIS0ALzXVVO-FbPa1GXCw9KkvI" alt="Ag6O2_csp_examples"  width="250" loop>
-  <img src="https://drive.google.com/uc?export=view&id=1Ndz5XLUzyCOYY_dQ9tKLeCEQoGO7esAt" alt="Bi2F8_csp_examples"  width="250" loop>
-  <img src="https://drive.google.com/uc?export=view&id=1WEOGzoFzePc1xQArgQQfcV3izJIuqTYi" alt="Co2Sb2_csp_examples"  width="250" loop>
+  <img src="assets/crystal_structures_Ag6O2.gif" alt="Ag6O2_csp_examples" width="250">
+  <img src="assets/crystal_structures_Bi2F8.gif" alt="Bi2F8_csp_examples" width="250">
+  <img src="assets/crystal_structures_Co4B2.gif" alt="Co4B2_csp_examples" width="250">
 </div>
 
 <div align="center" style="margin-top: 10px;">
-  <img src="https://drive.google.com/uc?export=view&id=18mzQ5QMbOm_dCCrYdEM9iK6uZOrN9dC0" alt="Co4B2_csp_examples"  width="250" loop>
-  <img src="https://drive.google.com/uc?export=view&id=1LDT2JaQ3zmEznpOAk8itvXofarCjLEBv" alt="Cr4Si4_csp_examples"  width="250" loop>
-  <img src="https://drive.google.com/uc?export=view&id=1raOue1I3sHK7_ckR3thgr9e-onPvJNcC" alt="KZnF3_csp_examples"  width="250" loop>
-  <img src="https://drive.google.com/uc?export=view&id=1un1Jlew3Xwg67jOpOm8ZnzD4FCFZ1phh" alt="YMg3_csp_examples"  width="250" loop>
+  <img src="assets/crystal_structures_KZnF3.gif" alt="KZnF3_csp_examples" width="250">
+  <img src="assets/crystal_structures_Cr2O4.gif" alt="Cr2O4_csp_examples" width="250">
+  <img src="assets/crystal_structures_YMg3.gif" alt="YMg3_csp_examples" width="250">
 </div>
 
 ## Prerequisites

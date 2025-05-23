@@ -12,4 +12,4 @@ oracle/.ipynb_checkpoints
 oracle/visualization/*
 oracle/*.ipynb
 oracle/utils/.ipynb_checkpoints
-
+visualization/*
