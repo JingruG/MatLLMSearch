@@ -11,20 +11,20 @@ os.environ['ENFORCE_EAGER'] = 'true'
 
 
 # Crystal Structure Generation
-# PROMPT_PATTERN_CSG = """You are an expert material scientist. Your task is to propose a new material with valid stable structures and compositions. No isolated or overlapped atoms are allowed.
+PROMPT_PATTERN_CSG_ZEROSHOT = """You are an expert material scientist. Your task is to propose a new material with valid stable structures and compositions. No isolated or overlapped atoms are allowed.
 
-# Format requirements:
-# 1. Each proposed structure must be formatted in JSON with the following structure:
-# {{
-#     "i": {{
-#         "formula": "composition_formula",
-#         "{fmt}": "{fmt}_format_string"
-#     }}
-# }}
-# 2. Use proper JSON escaping for newlines (\\n) and other special characters
+Format requirements:
+1. Each proposed structure must be formatted in JSON with the following structure:
+{{
+    "i": {{
+        "formula": "composition_formula",
+        "{fmt}": "{fmt}_format_string"
+    }}
+}}
+2. Use proper JSON escaping for newlines (\\n) and other special characters
 
-# Output your hypotheses below:
-# """
+Output your hypotheses below:
+"""
 
 PROMPT_PATTERN_CSG = """You are an expert material scientist. Your task is to propose {rep_size} new materials with valid stable structures and compositions. No isolated or overlapped atoms are allowed.
 
@@ -201,13 +201,6 @@ Output your ground state polymorph prediction below:
 # Output Hypothesis:
 # """
 
-# Oracle Settings
-DEFAULT_ORACLE_SETTINGS = {
-    "matbench_mp_gap": {
-        "default_topk": 100,
-        "max_iterations": 30,
-    }
-}
 
 # Model Settings
 MODEL_SETTINGS = {

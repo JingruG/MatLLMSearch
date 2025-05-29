@@ -2,13 +2,14 @@ import torch
 from vllm import LLM, SamplingParams
 from openai import OpenAI
 import os
+import sys
 # from vllm.model_executor.adapters import lora
 # from vllm.model_executor.parallel_utils.parallel_state import destroy_model_parallel
 from vllm.lora.request import LoRARequest
 from huggingface_hub import snapshot_download
-
+from pathlib import Path
 from peft import PeftModel, PeftConfig, LoraConfig
-from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaTokenizer, LlamaForCausalLM
+from transformers import AutoModel, AutoModelForCausalLM, AutoTokenizer, LlamaTokenizer, LlamaForCausalLM
 import shutil
 from typing import Optional
 from huggingface_hub import login, snapshot_download
@@ -17,12 +18,19 @@ import concurrent.futures
 import threading
 import time
 import json
+sys.path.insert(0, str(Path("/local2/jrgan/dLLM-Cache")))
+sys.path.insert(0, str(Path("/local2/jrgan/LLaDA")))
+from generate import generate as generate_llada
+from cache import dLLMCache, dLLMCacheConfig
+from hook import register_cache_LLaDA, logout_cache_LLaDA
+from dataclasses import asdict
 
 
 class LLMManager:
     def __init__(self, base_model, tensor_parallel_size=1, gpu_memory_utilization=0.8, temperature=1.0, max_tokens=200, seed=42):
         hf_token = os.environ.get("HF_TOKEN_W")
         login(token=hf_token)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.base_model = base_model
         self.seed = seed
         self.max_tokens = max_tokens
@@ -30,6 +38,7 @@ class LLMManager:
         self.llm, self.tokenizer = self._initialize_llm(tensor_parallel_size, gpu_memory_utilization)
         self.sampling_params = SamplingParams(temperature=temperature, top_p=0.9, max_tokens=max_tokens)
         self.lora_request = None
+        self.feature_cache = None
 
 
     def _load_api_keys(self):
@@ -104,43 +113,17 @@ class LLMManager:
             self.current_key_index = 0
             return OpenAI(base_url="https://openrouter.ai/api/v1",
                           api_key=self.api_keys[self.current_key_index]), None
+        elif "LLaDA" in self.base_model:
+            tokenizer = AutoTokenizer.from_pretrained(self.base_model, trust_remote_code=True)
+            llm = AutoModel.from_pretrained(self.base_model, trust_remote_code=True, torch_dtype=torch.bfloat16)
+            dLLMCache.new_instance(
+                **asdict(
+                    dLLMCacheConfig(prompt_interval_steps=100, gen_interval_steps=7, transfer_ratio=0.25)
+                )
+            )
+            register_cache_LLaDA(llm, "model.transformer.blocks")
+            return llm, tokenizer
         elif "crystalllm" in self.base_model:
-            # IGNORE_INDEX = -100
-            # MAX_LENGTH = 2048
-            # DEFAULT_PAD_TOKEN = "[PAD]"
-            # DEFAULT_EOS_TOKEN = "</s>"
-            # DEFAULT_BOS_TOKEN = "<s>"
-            # DEFAULT_UNK_TOKEN = "<unk>"
-            # model_string = "meta-llama/Llama-3.1-70B-Instruct"
-            # model = LlamaForCausalLM.from_pretrained(
-            #     model_string,
-            #     load_in_4bit=True,
-            #     device_map="auto",
-            # )
-            # tokenizer = AutoTokenizer.from_pretrained(
-            #     model_string,
-            #     model_max_length=MAX_LENGTH,
-            #     trust_remote_code=True,
-            #     padding_side="right",
-            #     use_fast=False)
-            # model.eval()
-            # special_tokens_dict = dict()
-            # if tokenizer.pad_token is None:
-            #     special_tokens_dict["pad_token"] = DEFAULT_PAD_TOKEN
-            # if tokenizer.eos_token is None:
-            #     special_tokens_dict["eos_token"] = DEFAULT_EOS_TOKEN
-            # if tokenizer.bos_token is None:
-            #     special_tokens_dict["bos_token"] = DEFAULT_BOS_TOKEN
-            # if tokenizer.unk_token is None:
-            #     special_tokens_dict["unk_token"] = DEFAULT_UNK_TOKEN
-            # self.smart_tokenizer_and_embedding_resize(
-            #     special_tokens_dict=special_tokens_dict,
-            #     llama_tokenizer=tokenizer,
-            #     model=model,
-            # )
-            # model = PeftModel.from_pretrained(model, "JennyGan/70b-mp20-9000", device_map="auto")
-            # return model, tokenizer
-
             vllm_model = LLM(
                 model="meta-llama/Llama-3.1-70B-Instruct",
                 tensor_parallel_size=tensor_parallel_size,  # Number of GPUs for tensor parallelism
@@ -156,33 +139,9 @@ class LLMManager:
                 max_num_batched_tokens=8192,  # Adjust based on your GPU memory
                 quantization="awq",  # Options: awq, gptq, none - try different ones
             )
-            
-            # For tokenization consistency, we still need the HF tokenizer
             tokenizer = AutoTokenizer.from_pretrained(model_string)
-            
             return vllm_model, tokenizer
-
-            # return LLM(
-            #     model=self.base_model,
-            #     dtype=torch.float16,
-            #     tensor_parallel_size=tensor_parallel_size,
-            #     gpu_memory_utilization=gpu_memory_utilization,
-            #     max_model_len=self._get_max_token_length(),
-            #     seed=self.seed,
-            #     # quantization="bitsandbytes",
-            #     # load_format="bitsandbytes",
-            #     # enforce_eager=True,
-            #     trust_remote_code=True,
-            #     max_num_seqs=8,
-            # )
         elif "lora" in self.base_model:
-            # model = AutoModelForCausalLM.from_pretrained(self.base_model, 
-            #                                 device_map="auto",
-            #                                 torch_dtype=torch.bfloat16)
-
-            # llm = LLM(model="meta-llama/Llama-3.1-70B-Instruct", tensor_parallel_size=1, gpu_memory_utilization=0.90)
-            # lora.LoRAModel.from_pretrained(llm.llm_engine.workers[0].model, "JennyGan/70b-mp20-14000") 
-
             if '70b' in self.base_model:
                 base_model_id = "meta-llama/Llama-3.1-70B-Instruct"
                 lora_path = snapshot_download(repo_id="JennyGan/70b-mp20-14000")
@@ -239,8 +198,21 @@ class LLMManager:
                 result = self.generate_deepseek(prompt)
                 results.append(result)
             return results
+        elif "LLaDA" in self.base_model:
+            inputs = []
+            for prompt in prompts:
+                input_ids = self.tokenizer(prompt)['input_ids']
+                inputs.append(torch.tensor(input_ids).to(self.device).unsqueeze(0))
+            results = []
+            for i, input in enumerate(tqdm(inputs, desc="LlaDA Generation", unit="prompt")):
+                self.feature_cache = dLLMCache()
+                self.feature_cache.reset_cache(input.shape[1])
+                result = generate_llada(self.llm, input, steps=128, gen_length=2048, temperature=self.temperature)
+                results.append(result)
+            return results
         elif "flowmm" in self.base_model:
             results = self.llm.generate(prompts)
+            return results
         elif "crystalllm" in self.base_model:
             batch_size = 10  # Adjust this value based on your GPU memory
             all_gen_strs = []

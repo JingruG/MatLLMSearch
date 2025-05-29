@@ -8,7 +8,6 @@ import numpy as np
 from typing import List, Tuple
 import tiktoken
 from dataclasses import dataclass
-import os
 import time
 from pymatgen.core.composition import Composition
 from pymatgen.core.structure import Structure
@@ -22,8 +21,9 @@ from typing import List, Dict, Tuple, Any
 
 from collections import Counter
 import torch.multiprocessing as mp
-
-
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 
 def parse_arguments() -> argparse.Namespace:
     """Parse command line arguments."""
@@ -39,7 +39,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument('--temperature', type=float, default=1.0)
     
     parser.add_argument('--random_seed', type=int, default=42)
-    parser.add_argument('--topk', type=int, default=100)
+    parser.add_argument('--population_size', type=int, default=100)
     parser.add_argument('--reproduction_size', type=int, default=5)
     parser.add_argument('--context_size', type=int, default=5)
     parser.add_argument('--max_iter', type=int, default=20)
@@ -50,7 +50,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument('--ppd_path', default='oracle/resources/2023-02-07-ppd-mp.pkl.gz')
     
     parser.add_argument('--opt_goal', choices=['e_hull_distance', 'bulk_modulus_relaxed', 'multi-obj'], default='e_hull_distance')
-    parser.add_argument('--task', choices=['csg', 'csp'], default='csg')
+    parser.add_argument('--task', choices=['csg', 'csp', 'csg_zeroshot'], default='csg')
     parser.add_argument('--csp_compound', choices=['Ag6O2', 'Bi2F8', 'Co2Sb2', 'Co4B2', 'Cr4Si4', 'KZnF3', "Sr2O4", "YMg3"], default='Ag6O2')
     
     parser.add_argument('--resume', type=str, default='')
@@ -125,20 +125,30 @@ def matches_unit_cell_pattern(comp1, comp2):
 def initialize_task_data(evaluator: StructureEvaluator, args: argparse.Namespace):
     """Initialize and prepare task data."""
 
-    seed_structures_df = pd.read_csv('oracle/resources/band_gap_processed.csv')
+    if "zeroshot" in args.task:
+        seed_structures_df = pd.read_csv('results/zero-one/poscar_70b_1000_zeroshot/generations.csv')
+        seed_structures_df['e_hull_distance'] = seed_structures_df['EHullDistance']
+        seed_structures_df['structure'] = seed_structures_df['StructureRelaxed']
+        seed_structures_df['source'] = 'llm'
+        seed_structures_df['delta_e'] = seed_structures_df['DeltaE'].fillna(float('inf'))
+    else:
+        seed_structures_df = pd.read_csv('oracle/resources/band_gap_processed.csv')
+        seed_structures_df['source'] = 'matbench'
+        seed_structures_df['delta_e'] = float('inf')
     seed_structures_df['structure'] = seed_structures_df['structure'].apply(lambda x: Structure.from_str(x, fmt='json') if pd.notna(x) else None)
     seed_structures_df['composition'] = [s.composition for s in seed_structures_df['structure']]
     seed_structures_df['composition_str'] = [s.composition.formula for s in seed_structures_df['structure']]
-        
-    # required_columns = ['structure', 'composition', 'composition_str', 'composition_len', 'e_hull_distance', 'delta_e', 'bulk_modulus', 'bulk_modulus_relaxed']
-    required_columns = ['structure', 'composition', 'composition_str', 'composition_len', 'e_hull_distance', 'delta_e']
+    seed_structures_df['composition_len'] = [len(s.composition.elements) for s in seed_structures_df['structure']]
+    seed_structures_df['bulk_modulus'] = float(0.0)
+    seed_structures_df['bulk_modulus_relaxed'] = float(0.0)
+    required_columns = ['structure', 'composition', 'composition_str', 'composition_len', 'e_hull_distance', 'delta_e', 'source', 'bulk_modulus', 'bulk_modulus_relaxed']
+    seed_structures_df = seed_structures_df[required_columns].sample(frac=1, random_state=args.random_seed)
     # seed_structures_df = (seed_structures_df
     #     [(seed_structures_df['is_balanced'] == 1) & 
     #      (seed_structures_df['is_bond_valid'] == True) &
     #      (seed_structures_df['composition_len'].between(3, 6))]
     # )
-    # Conditional Filtering
-    if args.task == "csg":
+    if "csg" in args.task:
         seed_structures_df = seed_structures_df.sort_values('e_hull_distance', ascending=True)
         seed_structures_df = seed_structures_df[np.isfinite(seed_structures_df['e_hull_distance'])]
         seed_structures_df = seed_structures_df[:args.pool_size]
@@ -150,14 +160,9 @@ def initialize_task_data(evaluator: StructureEvaluator, args: argparse.Namespace
         target_comp = Composition(args.csp_compound)
         # seed_structures_df = seed_structures_df[seed_structures_df['composition'].apply(matches_composition)]
         seed_structures_df = seed_structures_df[seed_structures_df['composition'].apply(lambda comp: matches_unit_cell_pattern(comp, target_comp))]
-
     else:
         raise ValueError(f"Invalid task: {args.task}")    
-    seed_structures_df = seed_structures_df[required_columns].sample(frac=1, random_state=args.random_seed)
-    seed_structures_df['source'] = 'matbench'
-    seed_structures_df['bulk_modulus'] = float(0.0)
-    seed_structures_df['bulk_modulus_relaxed'] = float(0.0)
-    print(f"Using extra pool of {len(seed_structures_df)} structures...")
+    print(f"A total of {len(seed_structures_df)} structures as reference...")
     
     return seed_structures_df
 
@@ -197,18 +202,14 @@ def run_generation_iteration(
     llm_crystals, llm_structures = evaluator.to_crys(llm_structures) # call to_crystals again
     num_c = len(llm_structures)
     print(f'Filtered to {num_c} balanced structures')
-    
-    # Get predictions and calculate objectives
-    # llm_predictions = oracle.predict_by_structures(llm_structures) if len(llm_structures) else []
-    
+
     # Compute stability
     stability_results = stability_calculator.compute_stability(llm_structures, wo_bulk=args.opt_goal=='e_hull_distance')
     if not stability_results:
         stability_results = [None] * len(llm_structures)
     
     generation_result = process_stability_results(stability_results, llm_structures)
-    list_attrs = ['parents', 'composition', 'objective', 'e_hull_distance', 'energy','energy_relaxed',
-                     'delta_e', 'crystal', 'bulk_modulus', 'structure_relaxed', 'bulk_modulus_relaxed']
+    list_attrs = ['parents', 'composition', 'objective', 'e_hull_distance', 'energy','energy_relaxed', 'delta_e', 'crystal', 'bulk_modulus', 'structure_relaxed', 'bulk_modulus_relaxed']
     for attr in list_attrs:
         value = getattr(generation_result, attr)
         if value is not None:
@@ -355,11 +356,12 @@ def process_stability_results(stability_results, structures):
 def get_parent_generation(evaluator, stability_calculator, input_generation: GenerationResult, parent_generation: GenerationResult,
                      full_df: pd.DataFrame, sort_target: str, args: argparse.Namespace, iter: int) -> GenerationResult:
     """Get sorted generation combining input structures and parent generation results."""
+    if input_generation is None and parent_generation is None and full_df is None: # zero-shot only
+        return GenerationResult(**{field: [None] for field in GenerationResult.__dataclass_fields__})
     interested_columns = ['structure', 'composition', 'composition_str', 'e_hull_distance', 'delta_e', 'bulk_modulus', 'bulk_modulus_relaxed', 'source']
-
     generation_df = pd.DataFrame(columns=interested_columns)
     # Combine input and parent generations when available
-    if input_generation and len(input_generation.structure) > 0:
+    if input_generation and len(input_generation.structure) > 0 and input_generation.structure[0] is not None:
         input_source = input_generation.source if hasattr(input_generation, 'source') and input_generation.source else ['llm'] * len(input_generation.structure)
         input_df = pd.DataFrame({
             'structure': input_generation.structure,
@@ -371,7 +373,7 @@ def get_parent_generation(evaluator, stability_calculator, input_generation: Gen
             'source': input_source
         })
         generation_df = pd.concat([generation_df, input_df], ignore_index=True)
-    if parent_generation and len(parent_generation.structure) > 0:
+    if parent_generation and len(parent_generation.structure) > 0 and parent_generation.structure[0] is not None:
         parent_source = parent_generation.source if hasattr(parent_generation, 'source') and parent_generation.source else ['parent'] * len(parent_generation.structure)
         parent_df = pd.DataFrame({
             'structure': parent_generation.structure,
@@ -384,16 +386,20 @@ def get_parent_generation(evaluator, stability_calculator, input_generation: Gen
         })
         generation_df = pd.concat([generation_df, parent_df], ignore_index=True)
         
-        
-    generation_df['composition_str'] = generation_df['composition'].apply(lambda x: x.formula)
-    needed_count = args.topk * args.context_size - len(generation_df)
-    if needed_count > 0 and len(full_df) > 0:
+    generation_df = generation_df[generation_df['e_hull_distance'] <= 0.1] # only keep metastable ones from past generations
+    needed_count = args.population_size * args.context_size - len(generation_df)
+    if needed_count > 0 and full_df is not None and len(full_df) > 0:
         sample_size = min(needed_count, len(full_df))
-        sampled_seeds_df = full_df[interested_columns].sample(n=sample_size)
-        generation_df = pd.concat([generation_df, sampled_seeds_df], ignore_index=True)
-    generation_df['objective'] = multi_objective_optimizer(generation_df)
+    #     sampled_seeds_df = full_df[interested_columns].sample(n=sample_size)
+    #     generation_df = pd.concat([generation_df, sampled_seeds_df], ignore_index=True)
+        generation_df = pd.concat([generation_df, full_df[interested_columns][:needed_count]], ignore_index=True)
     
-    if args.task == "csg":
+    generation_df['objective'] = multi_objective_optimizer(generation_df)
+    generation_df['composition_str'] = generation_df['composition'].apply(lambda x: x.formula)
+    ascending = (sort_target not in ['bulk_modulus', 'bulk_modulus_relaxed'])        
+    generation_df = generation_df.sort_values(sort_target, ascending=ascending)
+    
+    if "csg" in args.task:
         generation_df = generation_df.drop_duplicates(subset='composition_str')
         # generation_df = generation_df[~generation_df['composition_str'].str.contains('|'.join(LANTHANIDES + ACTINIDES), na=False)]
     elif args.task == "csp":
@@ -406,9 +412,9 @@ def get_parent_generation(evaluator, stability_calculator, input_generation: Gen
 
     generation_df = generation_df.drop(columns=['composition_str'])
 
-    print(f'Preparing {args.topk * args.context_size} parent structures for next generation from {len(generation_df)} structures...')
-    generation_df = generation_df.iloc[:args.topk * args.context_size]
-    indices = np.random.choice(len(generation_df), size=args.topk * args.context_size, replace=(len(generation_df) < args.topk * args.context_size))
+    print(f'Preparing {args.population_size * args.context_size} parent structures for next generation from {len(generation_df)} structures...')
+    generation_df = generation_df.iloc[:args.population_size * args.context_size]
+    indices = np.random.choice(len(generation_df), size=args.population_size * args.context_size, replace=(len(generation_df) < args.population_size * args.context_size))
     sampled_df = generation_df.iloc[indices]
 
     parents_df = sampled_df.copy()
@@ -426,20 +432,7 @@ def get_parent_generation(evaluator, stability_calculator, input_generation: Gen
         source=sampled_df['source'].tolist(),
         objective=sampled_df['objective'].tolist()
     )
-    # if input_generation and parent_generation:  # iterations after 1
-    #     return GenerationResult(
-    #         structure=sampled_df['structure'].tolist(),
-    #         bulk_modulus=sampled_df['bulk_modulus'].tolist(),
-    #         bulk_modulus_relaxed=sampled_df['bulk_modulus_relaxed'].tolist(),
-    #         e_hull_distance=sampled_df['e_hull_distance'].tolist(),
-    #         delta_e=sampled_df['delta_e'].tolist()
-    #     )
-    # else:  # first generation
-    #     structures = sampled_df['structure'].tolist()
-    #     # Compute stability
-    #     stability_results = stability_calculator.compute_stability(structures)
-    #     return process_stability_results(stability_results, structures)
-   
+    
 def resume_from_checkpoint(args):
     """Load previous generations and resume from the last completed iteration."""
     # Load generation history
@@ -489,9 +482,12 @@ def main():
     start_iter = 1
     if args.resume:
         curr_generation, last_iter = resume_from_checkpoint(args)
+        curr_generation = get_parent_generation(evaluator, stability_calculator, None, curr_generation, seed_structures_df, args.opt_goal, args, last_iter)
         start_iter = last_iter + 1
-        curr_generation = get_parent_generation(evaluator, stability_calculator, None, None, seed_structures_df, None, args, 0)
-    
+    else:
+        curr_generation = get_parent_generation(evaluator, stability_calculator, None, None, seed_structures_df, args.opt_goal, args, 0)
+    # if args.task == "csg_zeroshot":
+    #     print(f'Current generation: {curr_generation}')
     # Initialize results tracking
     start_time = time.time()
     for iteration in range(start_iter, args.max_iter + 1):
@@ -505,6 +501,7 @@ def main():
         )
         
         # Calculate metrics for evaluation
+        # metrics = {}
         metrics = evaluator.evaluate_generation(generation_result, iteration=iteration, args=args)
         
         # Save results

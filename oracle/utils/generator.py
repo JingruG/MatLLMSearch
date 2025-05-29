@@ -1,6 +1,6 @@
 from utils.data_processing import truncate_text, correct_json_string
 # from utils.structure_utils import filter_hypothesis, filter_balanced_structures
-from utils.config import PROMPT_PATTERN_CSG, PROMPT_PATTERN_CSP, PROMPT_CRYSTALLLM
+from utils.config import PROMPT_PATTERN_CSG_ZEROSHOT, PROMPT_PATTERN_CSG, PROMPT_PATTERN_CSP, PROMPT_CRYSTALLLM
 # from utils.evaluator import check_properties_input
 from typing import List, Dict, Tuple, Any, Optional
 import pandas as pd
@@ -60,14 +60,17 @@ class StructureGenerator:
         self.args = args
         self.base_path = base_path
         self.fmt = args.fmt
-        self.prompt_pattern = PROMPT_CRYSTALLLM if "crystalllm" in args.base_model else PROMPT_PATTERN_CSG if args.task == "csg" else PROMPT_PATTERN_CSP
+        self.prompt_pattern = PROMPT_CRYSTALLLM if "crystalllm" in args.base_model else PROMPT_PATTERN_CSG if "csg" in args.task else PROMPT_PATTERN_CSP
 
         
     def _prepare_instructions(self, input_structure_strs: List) -> List:
         instructions = []
         for input_str in input_structure_strs:
-            question = self.prompt_pattern.format(input=truncate_text(input_str, max_tokens=11800), rep_size=self.args.reproduction_size, fmt=self.fmt, compound=self.args.csp_compound)
-            question = truncate_text(question, max_tokens=10500)
+            if input_str == "":
+                question = PROMPT_PATTERN_CSG_ZEROSHOT.format(fmt=self.fmt)
+            else:
+                question = self.prompt_pattern.format(input=truncate_text(input_str, max_tokens=10000), rep_size=self.args.reproduction_size, fmt=self.fmt, compound=self.args.csp_compound)
+            question = truncate_text(question, max_tokens=10000)
             instructions.append(question)
         return instructions
 
@@ -166,33 +169,33 @@ class StructureGenerator:
         return structure.to(fmt="cif")
         
     def generate_structures(self, input_structures: List) -> List:
-        if "flowmm" in self.args.base_model:
-            generated_structures = self.llm_manager.generate(input_structures)
-            return list(map(lambda x: [x] for x in generated_structures)), list(map(lambda x: [x] for x in input_structures))
-        input_groups = [input_structures[i:i + self.args.context_size] for i in range(0, len(input_structures), self.args.context_size)]
+        if not input_structures or len(input_structures) == 0 or input_structures[0] == None:
+            input_structure_strs = [""] * self.args.population_size
+            input_groups = [[None] * self.args.context_size] * self.args.population_size
+        else:   
+            if "flowmm" in self.args.base_model:
+                generated_structures = self.llm_manager.generate(input_structures)
+                return list(map(lambda x: [x] for x in generated_structures)), list(map(lambda x: [x] for x in input_structures))
+                
+            input_groups = [input_structures[i:i + self.args.context_size] for i in range(0, len(input_structures), self.args.context_size)]
+            
+            input_structure_strs = [self.structures_to_json(input_group, precision=4, fmt=self.fmt) for input_group in input_groups]
+            if "crystalllm" in self.args.base_model and self.fmt=="cif":
+                input_structure_strs = []
+                species_to_remove_list = []
+                for input_group in input_groups:
+                    masked_structures = []
+                    for structure in input_group:
+                        species = [str(s) for s in structure.species]
+                        species_to_remove = random.choice(species)
+                        species_to_remove_list.append(species_to_remove)
+                        crystal_string = self.get_crystal_string(structure)  # Assuming this works on individual structures
+                        partial_crystal_str = crystal_string.replace(
+                            species_to_remove, "[MASK]"
+                        )
+                        masked_structures.append(partial_crystal_str)
+                    input_structure_strs.append(masked_structures)
         
-        input_structure_strs = [self.structures_to_json(input_group, precision=12, fmt=self.fmt) for input_group in input_groups]
-        if "crystalllm" in self.args.base_model and self.fmt=="cif":
-            input_structure_strs = []
-            species_to_remove_list = []
-            for input_group in input_groups:
-                masked_structures = []
-                for structure in input_group:
-                    species = [str(s) for s in structure.species]
-                    species_to_remove = random.choice(species)
-                    species_to_remove_list.append(species_to_remove)
-                    crystal_string = self.get_crystal_string(structure)  # Assuming this works on individual structures
-                    partial_crystal_str = crystal_string.replace(
-                        species_to_remove, "[MASK]"
-                    )
-                    masked_structures.append(partial_crystal_str)
-                input_structure_strs.append(masked_structures)
-        
-        # if self.args.task == "csp_MnO2":
-        #     host_struct = Structure.from_file('oracle/MnO2-host/mp-19395-alpha-MnO2-sym.cif')
-        #     host_structure_str = self.structures_to_json([host_struct], precision=12, fmt=self.fmt)
-        #     instructions = self._prepare_instructions(input_structure_strs, host_structure_str)
-        # else:
         instructions = self._prepare_instructions(input_structure_strs)
         
         start = time.time()
@@ -200,7 +203,6 @@ class StructureGenerator:
         print(f"Generation time elapsed: {time.time()-start}")
         print(len(data_gathered))
         return self.process_generated_data(data_gathered, input_groups)
-        
 
     def remove_duplicate_input(self, structure_list: List[Structure], input_structures: List[Structure]) -> List[Structure]:
         unique_structures = []

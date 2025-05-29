@@ -11,7 +11,7 @@ from pymatgen.analysis.molecule_structure_comparator import CovalentRadius
 from pymatgen.core.structure import Structure
 from utils.generator import GenerationResult
 from dataclasses import dataclass
-from utils.basic_eval import structure_to_crystal, get_fp_pdist, CompScaler, timeout, TimeoutError
+from utils.basic_eval import structure_to_crystal, get_fp_pdist, CompScaler
 from collections import Counter
 
 
@@ -104,7 +104,7 @@ class StructureEvaluator:
             'avg_bulk_modulus_relaxed': self.valid_mean(generation.bulk_modulus_relaxed),
             'avg_delta_e': self.valid_mean(generation.delta_e),
             'avg_ehull_dist': self.valid_mean(generation.e_hull_distance),
-            'size_population': args.topk,
+            'size_population': args.population_size,
             'reproduction_size': args.reproduction_size
         }
         
@@ -244,7 +244,6 @@ class StructureEvaluator:
                 full_path = self.base_path / path
                 data.to_csv(full_path, mode='a', header=not full_path.exists(), index=False)
             
-    @timeout(30, error_message="Balance composition check timed out after 30 seconds")
     def check_balanced_composition(self, structure: Structure):
         balanced_combinations = structure.composition.oxi_state_guesses(
             oxi_states_override=METAL_OXIDATION_STATES
