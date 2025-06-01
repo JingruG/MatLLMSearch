@@ -143,11 +143,7 @@ def initialize_task_data(evaluator: StructureEvaluator, args: argparse.Namespace
     seed_structures_df['bulk_modulus_relaxed'] = float(0.0)
     required_columns = ['structure', 'composition', 'composition_str', 'composition_len', 'e_hull_distance', 'delta_e', 'source', 'bulk_modulus', 'bulk_modulus_relaxed']
     seed_structures_df = seed_structures_df[required_columns].sample(frac=1, random_state=args.random_seed)
-    # seed_structures_df = (seed_structures_df
-    #     [(seed_structures_df['is_balanced'] == 1) & 
-    #      (seed_structures_df['is_bond_valid'] == True) &
-    #      (seed_structures_df['composition_len'].between(3, 6))]
-    # )
+    seed_structures_df = seed_structures_df[seed_structures_df['composition_len'].between(3, 6)]
     if "csg" in args.task:
         seed_structures_df = seed_structures_df.sort_values('e_hull_distance', ascending=True)
         seed_structures_df = seed_structures_df[np.isfinite(seed_structures_df['e_hull_distance'])]
@@ -476,7 +472,6 @@ def main():
     # Initialize models and components
     llm_manager, generator, evaluator, stability_calculator = initialize_models(args)
 
-    
     # Initialize task data
     seed_structures_df = initialize_task_data(evaluator, args)
     start_iter = 1
@@ -486,8 +481,7 @@ def main():
         start_iter = last_iter + 1
     else:
         curr_generation = get_parent_generation(evaluator, stability_calculator, None, None, seed_structures_df, args.opt_goal, args, 0)
-    # if args.task == "csg_zeroshot":
-    #     print(f'Current generation: {curr_generation}')
+
     # Initialize results tracking
     start_time = time.time()
     for iteration in range(start_iter, args.max_iter + 1):
@@ -500,8 +494,6 @@ def main():
             args
         )
         
-        # Calculate metrics for evaluation
-        # metrics = {}
         metrics = evaluator.evaluate_generation(generation_result, iteration=iteration, args=args)
         
         # Save results
