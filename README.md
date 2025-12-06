@@ -1,6 +1,6 @@
 # MatLLMSearch: Crystal Structure Discovery with Evolution-Guided Large Language Models
 
-This is the implementation for **MatLLMSearch: Crystal Structure Discovery with Evolution-Guided Large Language Models**. This code implements an evolutionary search pipeline for crystal structure generation (CSG) and crystal structure prediction (CSP) with Large Language Models (LLMs) without fine-tuning.
+This is the implementation for **MatLLMSearch: Crystal Structure Discovery with Evolution-Guided Large Language Models**. This code implements an evolutionary search pipeline for crystal structure generation (CSG) with Large Language Models (LLMs) without fine-tuning.
 
 ## Pipeline Overview
 
@@ -170,18 +170,3 @@ Model configuration is handled via `config/models.yaml` and `config/credentials.
 - `cif`: Crystallographic Information File format
 
 
-## Citation
-
-If you use MatLLMSearch in your research, please cite:
-
-```bibtex
-@misc{gan2025matllmsearch,
-      title={MatLLMSearch: Crystal Structure Discovery with Evolution-Guided Large Language Models}, 
-      author={Jingru Gan and Peichen Zhong and Yuanqi Du and Yanqiao Zhu and Chenru Duan and Haorui Wang and Daniel Schwalbe-Koda and Carla P. Gomes and Kristin A. Persson and Wei Wang},
-      year={2025},
-      eprint={2502.20933},
-      archivePrefix={arXiv},
-      primaryClass={cond-mat.mtrl-sci},
-      url={https://arxiv.org/abs/2502.20933}, 
-}
-```
