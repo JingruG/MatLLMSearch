@@ -168,5 +168,3 @@ Model configuration is handled via `config/models.yaml` and `config/credentials.
 ### Structure Formats
 - `poscar`: VASP POSCAR format
 - `cif`: Crystallographic Information File format
-
-
